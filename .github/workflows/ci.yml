@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Build
+        run: dotnet build -c Release
+
+      # Rendert die README-Bilder aus den echten UI-Komponenten.
+      # Dient gleichzeitig als Smoke-Test: Overlay, Leiste, Editor, Einstellungen und Toast werden instanziiert.
+      - name: Render documentation images
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD 'artifacts/docs'
+          $p = Start-Process 'bin/Release/net10.0-windows/SnipSnip.exe' -ArgumentList '--render-docs', "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Rendering timed out' }
+          if ($p.ExitCode -ne 0) {
+            Get-Content (Join-Path $out 'render-error.txt') -ErrorAction SilentlyContinue
+            throw "Rendering failed with exit code $($p.ExitCode)"
+          }
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-images
+          path: artifacts/docs

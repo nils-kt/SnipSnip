@@ -1,0 +1,159 @@
+<Window x:Class="SnipSnip.EditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SnipSnip" Width="1200" Height="800" MinWidth="1000" MinHeight="480"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource FgBrush}"
+        FontFamily="{StaticResource UiFont}" WindowStartupLocation="CenterScreen"
+        Icon="/Assets/app.ico" AllowDrop="True" UseLayoutRounding="True">
+    <Window.Resources>
+        <DrawingBrush x:Key="Checker" TileMode="Tile" Viewport="0,0,16,16" ViewportUnits="Absolute">
+            <DrawingBrush.Drawing>
+                <DrawingGroup>
+                    <GeometryDrawing Brush="#FFFFFFFF" Geometry="M0,0 H2 V2 H0 Z"/>
+                    <GeometryDrawing Brush="#FFDCDCDC" Geometry="M0,0 H1 V1 H0 Z M1,1 H2 V2 H1 Z"/>
+                </DrawingGroup>
+            </DrawingBrush.Drawing>
+        </DrawingBrush>
+        <Style TargetType="TextBlock" x:Key="BarLabel">
+            <Setter Property="Foreground" Value="{StaticResource FgDimBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,0,8,0"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <!-- ================= Hauptleiste ================= -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}"
+                BorderThickness="0,0,0,1" Padding="8,6">
+            <DockPanel LastChildFill="False">
+                <StackPanel DockPanel.Dock="Left" Orientation="Horizontal">
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconScissors}" Content="Neu"
+                            ToolTip="Neue Aufnahme  (Strg+N)" Click="NewSnip_Click"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconFolder}"
+                            ToolTip="Bild öffnen  (Strg+O)" Click="Open_Click"/>
+                    <Border Style="{StaticResource VSep}"/>
+
+                    <RadioButton x:Name="TSelect" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconPointer}"
+                                 ToolTip="Auswählen &amp; verschieben  (V)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TPen" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconEdit}"
+                                 ToolTip="Stift  (P)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TMarker" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconMarker}"
+                                 ToolTip="Textmarker  (M)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TLine" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconLine}"
+                                 ToolTip="Linie  (L)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TArrow" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconArrow}"
+                                 ToolTip="Pfeil  (A)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TRect" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconShapeRect}"
+                                 ToolTip="Rechteck  (R)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TEllipse" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconEllipse}"
+                                 ToolTip="Ellipse  (E)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TText" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconText}"
+                                 ToolTip="Text  (T)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TStep" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconStep}"
+                                 ToolTip="Nummerierung 1, 2, 3 …  (N)" Checked="Tool_Checked"/>
+                    <Border Style="{StaticResource VSep}"/>
+
+                    <RadioButton x:Name="TPixel" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconPixel}"
+                                 ToolTip="Zensieren: Verpixeln  (X)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TBlur" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconBlur}"
+                                 ToolTip="Zensieren: Weichzeichnen  (B)" Checked="Tool_Checked"/>
+                    <RadioButton x:Name="TBlack" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconBlackout}"
+                                 ToolTip="Zensieren: Schwärzen  (S)" Checked="Tool_Checked"/>
+                    <Border Style="{StaticResource VSep}"/>
+
+                    <RadioButton x:Name="TCrop" GroupName="Tool" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconCrop}"
+                                 ToolTip="Zuschneiden  (C)" Checked="Tool_Checked"/>
+                </StackPanel>
+
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="UndoBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconUndo}"
+                            ToolTip="Rückgängig  (Strg+Z)" Click="Undo_Click"/>
+                    <Button x:Name="RedoBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconRedo}"
+                            ToolTip="Wiederholen  (Strg+Y)" Click="Redo_Click"/>
+                    <Border Style="{StaticResource VSep}"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconCopy}" Content="Kopieren"
+                            ToolTip="In Zwischenablage  (Strg+C)" Click="Copy_Click"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconSave}" Content="Speichern"
+                            ToolTip="Speichern unter …  (Strg+S)" Click="Save_Click"/>
+                    <Button x:Name="UploadBtn" Style="{StaticResource AccentButton}" Tag="{StaticResource IconUpload}"
+                            Content="Hochladen" Click="Upload_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ================= Eigenschaften ================= -->
+        <Border DockPanel.Dock="Top" Background="{StaticResource Panel2Brush}" BorderBrush="{StaticResource LineBrush}"
+                BorderThickness="0,0,0,1" Padding="14,4" MinHeight="42">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <StackPanel x:Name="ColorPanel" Orientation="Horizontal">
+                    <TextBlock Text="Farbe" Style="{StaticResource BarLabel}"/>
+                    <StackPanel x:Name="SwatchHost" Orientation="Horizontal"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconPalette}" Padding="5"
+                            ToolTip="Eigene Farbe …" Click="CustomColor_Click"/>
+                    <Border x:Name="CurrentColorDot" Width="18" Height="18" CornerRadius="9" Margin="4,0,0,0"
+                            BorderBrush="#80FFFFFF" BorderThickness="1.5" VerticalAlignment="Center"/>
+                    <Border Style="{StaticResource VSep}"/>
+                </StackPanel>
+
+                <StackPanel x:Name="SizePanel" Orientation="Horizontal">
+                    <TextBlock x:Name="SizeLabel" Text="Stärke" Style="{StaticResource BarLabel}"/>
+                    <Slider x:Name="SizeSlider" Width="150" VerticalAlignment="Center" IsSnapToTickEnabled="True"
+                            TickFrequency="1" ValueChanged="Size_Changed" Focusable="False"/>
+                    <TextBlock x:Name="SizeValue" Width="30" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"/>
+                    <Border Style="{StaticResource VSep}"/>
+                </StackPanel>
+
+                <ToggleButton x:Name="FillToggle" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconFill}"
+                              Content="Füllung" Click="Fill_Click" ToolTip="Formen füllen / Text mit Hintergrund"/>
+
+                <TextBlock x:Name="ToolInfo" Style="{StaticResource BarLabel}" Margin="10,0,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ================= Statusleiste ================= -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}"
+                BorderThickness="0,1,0,0" Padding="14,2,8,2">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="14,0,0,0">
+                    <Border Style="{StaticResource VSep}" Margin="0,4,8,4"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconZoomOut}" Padding="5"
+                            ToolTip="Verkleinern  (Strg+-)" Click="ZoomOut_Click"/>
+                    <Button x:Name="ZoomLabel" Style="{StaticResource IconButton}" Content="100 %" MinWidth="54"
+                            Padding="5" FontSize="12" ToolTip="Originalgröße  (Strg+0)" Click="Zoom100_Click"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconZoomIn}" Padding="5"
+                            ToolTip="Vergrößern  (Strg++)" Click="ZoomIn_Click"/>
+                    <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconFit}" Padding="5"
+                            ToolTip="An Fenster anpassen  (Strg+1)" Click="Fit_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="StatusSize" DockPanel.Dock="Right" Foreground="{StaticResource FgDimBrush}" FontSize="12" VerticalAlignment="Center"/>
+                <TextBlock x:Name="StatusPos" DockPanel.Dock="Right" Foreground="{StaticResource FgDimBrush}" FontSize="12" Margin="0,0,24,0"/>
+                <TextBlock x:Name="StatusHint" Foreground="{StaticResource FgDimBrush}" FontSize="12" TextTrimming="CharacterEllipsis"/>
+            </DockPanel>
+        </Border>
+
+        <!-- ================= Zeichenfläche ================= -->
+        <ScrollViewer x:Name="Scroller" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                      Focusable="False" Background="#FF121215">
+            <Grid x:Name="Area" Background="Transparent" Focusable="True" FocusVisualStyle="{x:Null}"
+                  MinWidth="{Binding ViewportWidth, ElementName=Scroller}"
+                  MinHeight="{Binding ViewportHeight, ElementName=Scroller}">
+                <Grid x:Name="ZoomHost" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="40">
+                    <Grid.LayoutTransform>
+                        <ScaleTransform x:Name="ZoomTf"/>
+                    </Grid.LayoutTransform>
+                    <Border Background="{StaticResource Checker}">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="34" ShadowDepth="0" Opacity="0.7"/>
+                        </Border.Effect>
+                    </Border>
+                    <Grid x:Name="Surface" ClipToBounds="True" HorizontalAlignment="Left" VerticalAlignment="Top">
+                        <Image x:Name="BaseImage" Stretch="Fill"/>
+                        <Canvas x:Name="Layer"/>
+                    </Grid>
+                    <Canvas x:Name="Overlay" IsHitTestVisible="False"/>
+                </Grid>
+            </Grid>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

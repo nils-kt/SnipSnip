@@ -1,0 +1,8 @@
+bin/
+obj/
+dist/
+out/
+artifacts/
+.vs/
+*.user
+docs/images/render-error.txt

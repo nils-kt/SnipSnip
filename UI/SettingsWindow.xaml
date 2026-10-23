@@ -1,0 +1,132 @@
+<Window x:Class="SnipSnip.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SnipSnip – Einstellungen" Width="580" Height="760" MinWidth="480" MinHeight="420"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource FgBrush}"
+        FontFamily="{StaticResource UiFont}" FontSize="13" WindowStartupLocation="CenterScreen"
+        Icon="/Assets/app.ico" UseLayoutRounding="True">
+    <Window.Resources>
+        <Style TargetType="TextBlock" x:Key="Note">
+            <Setter Property="Foreground" Value="{StaticResource FgDimBrush}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Margin" Value="0,4,0,2"/>
+        </Style>
+        <Style TargetType="Border" x:Key="Card">
+            <Setter Property="Background" Value="{StaticResource PanelBrush}"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="16,12"/>
+            <Setter Property="BorderBrush" Value="{StaticResource LineBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style TargetType="RadioButton" x:Key="Seg" BasedOn="{StaticResource ToolToggle}">
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Margin" Value="0,0,4,0"/>
+        </Style>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource PanelBrush}" BorderBrush="{StaticResource LineBrush}"
+                BorderThickness="0,1,0,0" Padding="18,10">
+            <DockPanel>
+                <Button DockPanel.Dock="Left" Style="{StaticResource IconButton}" Tag="{StaticResource IconFolder}"
+                        Content="Datenordner" Click="DataFolder_Click" ToolTip="Ordner mit Einstellungen und Upload-Verlauf"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Style="{StaticResource IconButton}" Content="Abbrechen" Padding="14,7" Click="Cancel_Click"/>
+                    <Button Style="{StaticResource AccentButton}" Tag="{StaticResource IconCheck}" Content="Speichern"
+                            Padding="16,7" Click="Save_Click"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24,18,24,24">
+                <TextBlock Text="Einstellungen" FontSize="24" FontWeight="SemiBold"/>
+
+                <!-- Tastenkürzel -->
+                <TextBlock Text="TASTENKÜRZEL" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Neue Aufnahme starten mit"/>
+                        <TextBox x:Name="HotkeyBox" Style="{StaticResource DarkText}" IsReadOnly="True" Margin="0,6,0,0"
+                                 FontSize="15" FontWeight="SemiBold" Cursor="Hand" IsReadOnlyCaretVisible="False"
+                                 PreviewKeyDown="HotkeyBox_KeyDown" PreviewKeyUp="HotkeyBox_KeyUp"
+                                 GotKeyboardFocus="HotkeyBox_GotFocus" LostKeyboardFocus="HotkeyBox_LostFocus"/>
+                        <TextBlock x:Name="HotkeyHint" Style="{StaticResource Note}"
+                                   Text="Ins Feld klicken und die gewünschte Taste drücken – z. B. Pause, Druck, F9 oder Strg + Umschalt + S."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Nach der Aufnahme -->
+                <TextBlock Text="NACH DER AUFNAHME" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Standard-Aktion (auch direkt in der Leiste umschaltbar)"/>
+                        <WrapPanel Margin="0,8,0,6">
+                            <RadioButton x:Name="AEditor" GroupName="A" Style="{StaticResource Seg}" Tag="{StaticResource IconEdit}" Content="Editor"/>
+                            <RadioButton x:Name="ACopy" GroupName="A" Style="{StaticResource Seg}" Tag="{StaticResource IconCopy}" Content="Kopieren"/>
+                            <RadioButton x:Name="ASave" GroupName="A" Style="{StaticResource Seg}" Tag="{StaticResource IconSave}" Content="Speichern"/>
+                            <RadioButton x:Name="AUpload" GroupName="A" Style="{StaticResource Seg}" Tag="{StaticResource IconUpload}" Content="Hochladen"/>
+                        </WrapPanel>
+                        <CheckBox x:Name="CopyCheck" Style="{StaticResource DarkCheck}" Content="Jede Aufnahme automatisch in die Zwischenablage kopieren"/>
+                        <CheckBox x:Name="AutoSaveCheck" Style="{StaticResource DarkCheck}" Content="Jede Aufnahme automatisch im Bilder-Ordner speichern"/>
+                        <CheckBox x:Name="MagnifierCheck" Style="{StaticResource DarkCheck}" Content="Lupe mit Pixel-Farbe bei der Auswahl anzeigen"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Speichern -->
+                <TextBlock Text="SPEICHERN" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Bilder-Ordner"/>
+                        <DockPanel Margin="0,6,0,0">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Tag="{StaticResource IconFolder}"
+                                    Content="Durchsuchen …" Margin="6,0,0,0" Click="Browse_Click"/>
+                            <TextBox x:Name="FolderBox" Style="{StaticResource DarkText}"/>
+                        </DockPanel>
+                        <TextBlock Text="Format" Margin="0,12,0,0"/>
+                        <WrapPanel Margin="0,6,0,0">
+                            <RadioButton x:Name="FmtPng" GroupName="F" Style="{StaticResource Seg}" Content="PNG (verlustfrei)"/>
+                            <RadioButton x:Name="FmtJpg" GroupName="F" Style="{StaticResource Seg}" Content="JPG (klein)"/>
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Hochladen -->
+                <TextBlock Text="HOCHLADEN" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock Text="Dienst"/>
+                        <WrapPanel Margin="0,6,0,0">
+                            <RadioButton x:Name="PImgur" GroupName="P" Style="{StaticResource Seg}" Content="Imgur" Checked="Provider_Checked"/>
+                            <RadioButton x:Name="PCatbox" GroupName="P" Style="{StaticResource Seg}" Content="catbox.moe (ohne Konto)" Checked="Provider_Checked"/>
+                        </WrapPanel>
+
+                        <StackPanel x:Name="ImgurPanel" Margin="0,12,0,0">
+                            <TextBlock Text="Imgur Client-ID"/>
+                            <TextBox x:Name="ClientIdBox" Style="{StaticResource DarkText}" Margin="0,6,0,0" FontFamily="Consolas"/>
+                            <TextBlock Style="{StaticResource Note}">
+                                Anonyme Uploads brauchen eine kostenlose Client-ID:
+                                <Hyperlink NavigateUri="https://api.imgur.com/oauth2/addclient" RequestNavigate="Link_Navigate"
+                                           Foreground="{StaticResource AccentTextBrush}">bei Imgur registrieren</Hyperlink>
+                                → „Anonymous usage without user authorization“ wählen und die Client-ID hier einfügen.
+                            </TextBlock>
+                        </StackPanel>
+
+                        <CheckBox x:Name="CopyLinkCheck" Style="{StaticResource DarkCheck}" Margin="0,10,0,5"
+                                  Content="Link nach dem Hochladen in die Zwischenablage kopieren"/>
+                        <CheckBox x:Name="OpenLinkCheck" Style="{StaticResource DarkCheck}" Content="Link nach dem Hochladen im Browser öffnen"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Allgemein -->
+                <TextBlock Text="ALLGEMEIN" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <CheckBox x:Name="AutostartCheck" Style="{StaticResource DarkCheck}" Content="SnipSnip mit Windows starten (im Tray)"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+</Window>

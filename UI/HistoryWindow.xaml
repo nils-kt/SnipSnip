@@ -1,0 +1,43 @@
+<Window x:Class="SnipSnip.HistoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SnipSnip – Upload-Verlauf" Width="720" Height="480" MinWidth="520" MinHeight="300"
+        Background="{StaticResource WindowBrush}" Foreground="{StaticResource FgBrush}"
+        FontFamily="{StaticResource UiFont}" FontSize="13" WindowStartupLocation="CenterScreen"
+        Icon="/Assets/app.ico" UseLayoutRounding="True">
+    <DockPanel Margin="20,16,20,14">
+        <TextBlock DockPanel.Dock="Top" Text="Upload-Verlauf" FontSize="22" FontWeight="SemiBold" Margin="0,0,0,12"/>
+
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+            <TextBlock x:Name="CountText" Foreground="{StaticResource FgDimBrush}" VerticalAlignment="Center" FontSize="12"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconOpenExt}" Content="Öffnen" Click="Open_Click"/>
+                <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconLink}" Content="Link kopieren" Click="Copy_Click"/>
+                <Button x:Name="DeleteBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconTrash}" Content="Bei Imgur löschen"
+                        ToolTip="Öffnet den Lösch-Link von Imgur im Browser" Click="DeleteOnline_Click"/>
+                <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconClose}" Content="Aus Liste entfernen" Click="Remove_Click"/>
+            </StackPanel>
+        </DockPanel>
+
+        <Border Background="{StaticResource PanelBrush}" CornerRadius="10" BorderBrush="{StaticResource LineBrush}" BorderThickness="1">
+            <ListBox x:Name="UploadList" Background="Transparent" BorderThickness="0" Foreground="{StaticResource FgBrush}"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled" Padding="4"
+                     MouseDoubleClick="List_DoubleClick" SelectionChanged="List_SelectionChanged">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <Grid Margin="6,5">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="140"/>
+                                <ColumnDefinition Width="100"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Text="{Binding TimeText}" Foreground="{StaticResource FgDimBrush}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding Provider}" Foreground="{StaticResource AccentTextBrush}"/>
+                            <TextBlock Grid.Column="2" Text="{Binding Url}" TextTrimming="CharacterEllipsis"/>
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+    </DockPanel>
+</Window>

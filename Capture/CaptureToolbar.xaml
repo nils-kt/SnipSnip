@@ -1,0 +1,70 @@
+<UserControl x:Class="SnipSnip.CaptureToolbar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Foreground="{StaticResource FgBrush}" FontFamily="{StaticResource UiFont}">
+    <StackPanel HorizontalAlignment="Center">
+        <Border x:Name="Bar" Background="#F51D1D22" CornerRadius="12" BorderBrush="#33FFFFFF" BorderThickness="1"
+                Padding="6" Cursor="Arrow" MouseLeftButtonDown="Swallow" MouseLeftButtonUp="Swallow">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="26" ShadowDepth="4" Opacity="0.55"/>
+            </Border.Effect>
+            <Border.RenderTransform>
+                <TranslateTransform x:Name="Slide"/>
+            </Border.RenderTransform>
+            <StackPanel Orientation="Horizontal">
+                <!-- Modus -->
+                <RadioButton x:Name="ModeRect" GroupName="Mode" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconRect}" ToolTip="Rechteck  (1)" Checked="Mode_Checked"/>
+                <RadioButton x:Name="ModeWindow" GroupName="Mode" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconWindow}" ToolTip="Fenster  (2)" Checked="Mode_Checked"/>
+                <RadioButton x:Name="ModeFree" GroupName="Mode" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconFree}" ToolTip="Freihand  (3)" Checked="Mode_Checked"/>
+                <RadioButton x:Name="ModeFull" GroupName="Mode" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconFull}" ToolTip="Vollbild / Monitor  (4)" Checked="Mode_Checked"/>
+
+                <Border Style="{StaticResource VSep}"/>
+
+                <!-- Verzögerung -->
+                <Button x:Name="DelayBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconTimer}"
+                        ToolTip="Verzögerte Aufnahme" Click="Delay_Click">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="In 3 Sekunden aufnehmen" Tag="3" Click="DelayItem_Click"/>
+                            <MenuItem Header="In 5 Sekunden aufnehmen" Tag="5" Click="DelayItem_Click"/>
+                            <MenuItem Header="In 10 Sekunden aufnehmen" Tag="10" Click="DelayItem_Click"/>
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+
+                <Border Style="{StaticResource VSep}"/>
+
+                <!-- Danach -->
+                <TextBlock Text="Danach" Foreground="{StaticResource FgDimBrush}" VerticalAlignment="Center"
+                           FontSize="12" Margin="4,0,6,0"/>
+                <RadioButton x:Name="ActEditor" GroupName="Act" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconEdit}" Content="Editor" Checked="Act_Checked"
+                             ToolTip="Im Editor öffnen (markieren, zensieren, beschriften)"/>
+                <RadioButton x:Name="ActCopy" GroupName="Act" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconCopy}" Content="Kopieren" Checked="Act_Checked"
+                             ToolTip="Nur in die Zwischenablage kopieren"/>
+                <RadioButton x:Name="ActSave" GroupName="Act" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconSave}" Content="Speichern" Checked="Act_Checked"
+                             ToolTip="Direkt im Bilder-Ordner speichern"/>
+                <RadioButton x:Name="ActUpload" GroupName="Act" Style="{StaticResource ToolToggle}"
+                             Tag="{StaticResource IconUpload}" Content="Hochladen" Checked="Act_Checked"/>
+
+                <Border Style="{StaticResource VSep}"/>
+
+                <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconSettings}"
+                        ToolTip="Einstellungen" Click="Settings_Click"/>
+                <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconClose}"
+                        ToolTip="Abbrechen  (Esc)" Click="Close_Click"/>
+            </StackPanel>
+        </Border>
+
+        <Border x:Name="HintPill" Margin="0,9,0,0" HorizontalAlignment="Center" Background="#E01D1D22"
+                CornerRadius="10" Padding="11,4" IsHitTestVisible="False" BorderBrush="#22FFFFFF" BorderThickness="1">
+            <TextBlock x:Name="Hint" Foreground="#FFD0D0DA" FontSize="12"/>
+        </Border>
+    </StackPanel>
+</UserControl>
