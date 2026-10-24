@@ -59,12 +59,30 @@ namespace SnipSnip
             return false;
         }
 
+        /// <summary>
+        /// Liegt der Punkt im Layout-Bereich der Leiste? Geometrisch geprüft – unabhängig davon,
+        /// ob die Leiste gerade noch einfährt (dann trifft der WPF-Hit-Test das Bild darunter).
+        /// </summary>
+        /// <summary>Position im Fenster (DIP) -> physische Bildschirmkoordinate zum Zeitpunkt des Ereignisses.</summary>
+        Point ToPhys(Point local) =>
+            Root.ActualWidth > 0
+                ? new Point(mon.X + local.X * mon.Width / Root.ActualWidth, mon.Y + local.Y * mon.Height / Root.ActualHeight)
+                : session.Cursor;
+
+        bool IsOverToolbar(Point p)
+        {
+            if (ToolbarHost.Content == null || !ToolbarHost.IsHitTestVisible || ToolbarHost.ActualWidth <= 0) return false;
+            var r = ToolbarHost.TransformToAncestor(Root).TransformBounds(new Rect(ToolbarHost.RenderSize));
+            r.Inflate(4, 4);
+            return r.Contains(p);
+        }
+
         protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
         {
             base.OnMouseLeftButtonDown(e);
-            if (e.Handled || IsInToolbar(e.OriginalSource)) return;
+            if (e.Handled || IsInToolbar(e.OriginalSource) || IsOverToolbar(e.GetPosition(Root))) return;
             CaptureMouse();
-            session.OnMouseDown();
+            session.OnMouseDown(ToPhys(e.GetPosition(Root)));
             e.Handled = true;
         }
 
@@ -77,10 +95,12 @@ namespace SnipSnip
         protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
         {
             base.OnMouseLeftButtonUp(e);
-            if (IsMouseCaptured) ReleaseMouseCapture();
-            session.OnMouseUp();
+            // Nur eine Auswahl abschließen, die in diesem Fenster begonnen wurde
+            if (!IsMouseCaptured) return;
+            var p = ToPhys(e.GetPosition(Root));
+            ReleaseMouseCapture();
+            session.OnMouseUp(p);
         }
-
         protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
         {
             base.OnMouseRightButtonUp(e);

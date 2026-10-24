@@ -33,6 +33,18 @@ namespace SnipSnip
         public void Sync()
         {
             syncing = true;
+            bool video = session.Video;
+            MediaPhoto.IsChecked = !video;
+            MediaVideo.IsChecked = video;
+            ModeFree.Visibility = video ? Visibility.Collapsed : Visibility.Visible;
+            AudioPanel.Visibility = video ? Visibility.Visible : Visibility.Collapsed;
+            DelayBtn.Visibility = DelaySep.Visibility = video ? Visibility.Collapsed : Visibility.Visible;
+            SysAudioToggle.IsChecked = App.Settings.RecordSystemAudio;
+            MicToggle.IsChecked = App.Settings.RecordMicrophone;
+            ModeRect.ToolTip = video ? "Bereich aufnehmen  (1)" : "Rechteck  (1)";
+            ModeWindow.ToolTip = video ? "Fensterbereich aufnehmen  (2)" : "Fenster  (2)";
+            ModeFull.ToolTip = video ? "Ganzen Monitor aufnehmen  (4)" : "Vollbild / Monitor  (4)";
+
             ModeRect.IsChecked = session.Mode == CaptureMode.Rectangle;
             ModeWindow.IsChecked = session.Mode == CaptureMode.Window;
             ModeFree.IsChecked = session.Mode == CaptureMode.Freeform;
@@ -44,7 +56,13 @@ namespace SnipSnip
             ActUpload.IsChecked = session.Action == AfterCapture.Upload;
             ActUpload.ToolTip = $"Direkt zu {Uploader.Name(App.Settings.Provider)} hochladen – Link landet in der Zwischenablage";
 
-            Hint.Text = session.Mode switch
+            string stop = App.Instance.HotkeyDisplay;
+            Hint.Text = video ? session.Mode switch
+            {
+                CaptureMode.Window => $"Fenster anklicken – die Aufnahme startet   ·   {stop} = Aufnahme beenden   ·   Esc = Abbrechen",
+                CaptureMode.Fullscreen => $"Monitor anklicken – die Aufnahme startet   ·   {stop} = Aufnahme beenden   ·   Esc = Abbrechen",
+                _ => $"Bereich für das Video aufziehen   ·   Klick = Fenster   ·   {stop} = Aufnahme beenden   ·   Esc = Abbrechen"
+            } : session.Mode switch
             {
                 CaptureMode.Window => "Fenster anklicken   ·   Esc = Abbrechen",
                 CaptureMode.Freeform => "Form mit gedrückter Maustaste zeichnen   ·   Esc = Abbrechen",
@@ -62,6 +80,18 @@ namespace SnipSnip
                   : sender == ModeFull ? CaptureMode.Fullscreen
                   : CaptureMode.Rectangle;
             session.SetMode(m);
+        }
+
+        void Media_Checked(object sender, RoutedEventArgs e)
+        {
+            if (syncing) return;
+            session.SetVideo(sender == MediaVideo);
+        }
+
+        void Audio_Click(object sender, RoutedEventArgs e)
+        {
+            App.Settings.RecordSystemAudio = SysAudioToggle.IsChecked == true;
+            App.Settings.RecordMicrophone = MicToggle.IsChecked == true;
         }
 
         void Act_Checked(object sender, RoutedEventArgs e)

@@ -23,6 +23,8 @@ namespace SnipSnip
         public List<Rect> Monitors { get; private set; } = new();
         public CaptureMode Mode { get; private set; }
         public AfterCapture Action { get; private set; }
+        /// <summary>true = Video aufnehmen statt Bildschirmfoto.</summary>
+        public bool Video { get; private set; }
 
         // Zustand für das Rendern der Overlays
         public Rect? Selection { get; private set; }
@@ -43,13 +45,16 @@ namespace SnipSnip
             hidden = hide;
             Mode = App.Settings.Mode;
             Action = App.Settings.Action;
+            Video = App.Settings.VideoMode;
+            if (Video && Mode == CaptureMode.Freeform) Mode = CaptureMode.Rectangle;
         }
 
         /// <summary>Session ohne echte Bildschirmaufnahme – nur für das Rendern der Doku-Bilder.</summary>
         internal static CaptureSession CreateForDocs(BitmapSource frozen, Rect monitor, CaptureMode mode,
-            AfterCapture action, Rect? selection, Point cursor) =>
+            AfterCapture action, Rect? selection, Point cursor, bool video = false) =>
             new(null)
             {
+                Video = video,
                 Frozen = frozen,
                 Virtual = monitor,
                 Monitors = new List<Rect> { monitor },
@@ -185,6 +190,18 @@ namespace SnipSnip
             RenderAll();
         }
 
+        public void SetVideo(bool video)
+        {
+            Video = video;
+            App.Settings.VideoMode = video;
+            if (video && Mode == CaptureMode.Freeform) Mode = CaptureMode.Rectangle;
+            Dragging = false;
+            Lasso = null;
+            toolbar?.Sync();
+            UpdateHover();
+            RenderAll();
+        }
+
         public void SetAction(AfterCapture a)
         {
             Action = a;
@@ -211,9 +228,10 @@ namespace SnipSnip
 
         // ------------------------------------------------------------------ Maus / Tastatur
 
-        public void OnMouseDown()
+        /// <param name="at">Physische Position zum Zeitpunkt des Klicks (nicht erst bei der Verarbeitung).</param>
+        public void OnMouseDown(Point at)
         {
-            Cursor = CursorPhys();
+            Cursor = new Point(Math.Round(at.X), Math.Round(at.Y));
             switch (Mode)
             {
                 case CaptureMode.Rectangle:
@@ -254,10 +272,10 @@ namespace SnipSnip
             RenderAll();
         }
 
-        public void OnMouseUp()
+        public void OnMouseUp(Point at)
         {
             if (!Dragging) return;
-            Cursor = CursorPhys();
+            Cursor = new Point(Math.Round(at.X), Math.Round(at.Y));
             Dragging = false;
 
             if (Mode == CaptureMode.Rectangle)
@@ -304,7 +322,7 @@ namespace SnipSnip
                     break;
                 case Key.D1: case Key.NumPad1: SetMode(CaptureMode.Rectangle); break;
                 case Key.D2: case Key.NumPad2: SetMode(CaptureMode.Window); break;
-                case Key.D3: case Key.NumPad3: SetMode(CaptureMode.Freeform); break;
+                case Key.D3: case Key.NumPad3: if (!Video) SetMode(CaptureMode.Freeform); break;
                 case Key.D4: case Key.NumPad4: SetMode(CaptureMode.Fullscreen); break;
                 case Key.Left: Nudge(-1, 0); break;
                 case Key.Right: Nudge(1, 0); break;
@@ -353,6 +371,17 @@ namespace SnipSnip
 
         void Finish(Rect r)
         {
+            if (Video)
+            {
+                var region = Rect.Intersect(r, Virtual);
+                if (region.IsEmpty || region.Width < 8 || region.Height < 8) return;
+                var act = Action;
+                var hid = hidden;
+                End(restoreHidden: false); // das versteckte Fenster erst nach der Aufnahme zurückholen
+                App.Instance.StartRecording(region, act, hid);
+                return;
+            }
+
             var ir = ToImageRect(r);
             if (ir.Width < 1 || ir.Height < 1) return;
             var img = ImageUtil.ToBgra(new CroppedBitmap(Frozen, ir));
@@ -406,7 +435,7 @@ namespace SnipSnip
             toolbarHost = null;
         }
 
-        void End()
+        void End(bool restoreHidden = true)
         {
             if (ended) return;
             ended = true;
@@ -414,7 +443,7 @@ namespace SnipSnip
             Current = null;
             Frozen = null!;
             App.Settings.Save();
-            if (hidden != null)
+            if (restoreHidden && hidden != null)
             {
                 hidden.Show();
                 hidden.Activate();

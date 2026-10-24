@@ -41,11 +41,22 @@ namespace SnipSnip
                 return;
             }
 
+            string? fileArg = e.Args.FirstOrDefault(a => !a.StartsWith("--") && File.Exists(a));
+
             mutex = new Mutex(true, MutexName, out bool created);
             if (!created)
             {
-                // Läuft schon -> der laufenden Instanz sagen, dass sie eine Aufnahme starten soll.
-                try { EventWaitHandle.OpenExisting(SignalName).Set(); } catch { }
+                // Läuft schon -> der laufenden Instanz eine Datei zum Öffnen übergeben oder eine Aufnahme starten lassen.
+                try
+                {
+                    if (fileArg != null)
+                    {
+                        Directory.CreateDirectory(AppSettings.DataDir);
+                        File.WriteAllText(PendingOpenFile, Path.GetFullPath(fileArg));
+                    }
+                    EventWaitHandle.OpenExisting(SignalName).Set();
+                }
+                catch { }
                 Shutdown();
                 return;
             }
@@ -54,7 +65,7 @@ namespace SnipSnip
             new Thread(() =>
             {
                 while (signal.WaitOne() && !exiting)
-                    Dispatcher.InvokeAsync(() => StartCapture());
+                    Dispatcher.InvokeAsync(OnSignal);
             }) { IsBackground = true, Name = "SnipSnip.Signal" }.Start();
 
             DispatcherUnhandledException += (_, a) =>
@@ -65,12 +76,15 @@ namespace SnipSnip
 
             Settings = AppSettings.Load();
             SetupTray();
+            System.Threading.Tasks.Task.Run(ScreenRecorder.CleanupOldTemp);
 
             hotkey = new HotkeyManager();
             hotkey.Pressed += () => StartCapture();
             bool ok = RegisterHotkey();
 
-            if (e.Args.Contains("--capture"))
+            if (fileArg != null)
+                OpenPath(Path.GetFullPath(fileArg));
+            else if (e.Args.Contains("--capture"))
                 StartCapture();
             else if (!e.Args.Contains("--tray"))
                 Toast.Notify("SnipSnip ist bereit",
@@ -79,11 +93,31 @@ namespace SnipSnip
                     null, ok ? null : ShowSettings, 6);
         }
 
+        static string PendingOpenFile => Path.Combine(AppSettings.DataDir, "pending-open.txt");
+
+        /// <summary>Signal einer zweiten Instanz: Datei öffnen (falls übergeben), sonst neue Aufnahme.</summary>
+        void OnSignal()
+        {
+            string? path = null;
+            try
+            {
+                if (File.Exists(PendingOpenFile))
+                {
+                    path = File.ReadAllText(PendingOpenFile).Trim();
+                    File.Delete(PendingOpenFile);
+                }
+            }
+            catch { }
+            if (!string.IsNullOrEmpty(path) && File.Exists(path)) OpenPath(path);
+            else StartCapture();
+        }
+
         /// <summary>Rendert die README-Bilder (auch in der CI) und beendet sich. Exit-Code 1 bei Fehlern.</summary>
         void RenderDocsAndExit(string outDir)
         {
             // Deterministisch und ohne persönliche Daten (Benutzername im Pfad); Benutzer-Einstellungen bleiben unberührt
-            Settings = new AppSettings { SaveFolder = @"C:\Users\Du\Pictures\SnipSnip" };
+            Settings = new AppSettings { SaveFolder = @"C:\Users\Du\Pictures\SnipSnip", VideoFolder = @"C:\Users\Du\Videos\SnipSnip" };
+            FFmpeg.DocsOverride = @"C:\Program Files\ffmpeg\bin\ffmpeg.exe";
             // Watchdog: in der CI darf ein hängender Dialog o. Ä. den Build nicht blockieren
             new Thread(() => { Thread.Sleep(TimeSpan.FromMinutes(2)); Environment.Exit(2); }) { IsBackground = true }.Start();
             try
@@ -121,11 +155,13 @@ namespace SnipSnip
             captureItem = new WinForms.ToolStripMenuItem("", null, (_, _) => StartCapture());
             captureItem.Font = new System.Drawing.Font(captureItem.Font, System.Drawing.FontStyle.Bold);
             menu.Items.Add(captureItem);
-            menu.Items.Add("Bild öffnen …", null, (_, _) => OpenImageFile());
+            menu.Items.Add("Neue Videoaufnahme", null, (_, _) => StartCapture(video: true));
+            menu.Items.Add("Bild oder Video öffnen …", null, (_, _) => OpenFile());
             menu.Items.Add("Upload-Verlauf", null, (_, _) => ShowHistory());
             menu.Items.Add(new WinForms.ToolStripSeparator());
             menu.Items.Add("Einstellungen", null, (_, _) => ShowSettings());
             menu.Items.Add("Bilder-Ordner öffnen", null, (_, _) => OpenFolder(Settings.SaveFolder));
+            menu.Items.Add("Video-Ordner öffnen", null, (_, _) => OpenFolder(Settings.VideoFolder));
             menu.Items.Add(new WinForms.ToolStripSeparator());
             menu.Items.Add("Beenden", null, (_, _) => Shutdown());
 
@@ -183,7 +219,93 @@ namespace SnipSnip
 
         // ---------------------------------------------------------------- Aufnahme
 
-        public void StartCapture(Window? hide = null) => CaptureSession.Start(hide);
+        /// <summary>Startet eine Aufnahme – oder beendet eine laufende Videoaufnahme (Tastenkürzel erneut gedrückt).</summary>
+        public void StartCapture(Window? hide = null, bool? video = null)
+        {
+            if (RecordingSession.Current != null)
+            {
+                RecordingSession.Current.Stop();
+                return;
+            }
+            if (video.HasValue) Settings.VideoMode = video.Value;
+            CaptureSession.Start(hide);
+        }
+
+        /// <summary>Wird nach einer Bereichsauswahl im Video-Modus aufgerufen.</summary>
+        public async void StartRecording(Rect physicalRegion, AfterCapture action, Window? hidden)
+        {
+            if (!FFmpeg.IsAvailable && !await EnsureFfmpegAsync(null))
+            {
+                if (hidden != null) { hidden.Show(); hidden.Activate(); }
+                return;
+            }
+            RecordingSession.Start(physicalRegion, action, hidden);
+        }
+
+        /// <summary>Fragt nach, ob FFmpeg heruntergeladen werden soll. true = FFmpeg ist danach verfügbar.</summary>
+        public Task<bool> EnsureFfmpegAsync(Window? owner)
+        {
+            if (FFmpeg.IsAvailable) return Task.FromResult(true);
+            var w = new FfmpegSetupWindow();
+            if (owner is { IsVisible: true }) w.Owner = owner;
+            return Task.FromResult(w.ShowDialog() == true && FFmpeg.IsAvailable);
+        }
+
+        public async Task HandleRecording(string path, AfterCapture action)
+        {
+            string? saved = null;
+            try
+            {
+                if (Settings.AutoSave || action == AfterCapture.Save)
+                {
+                    Directory.CreateDirectory(Settings.VideoFolder);
+                    saved = Path.Combine(Settings.VideoFolder, Path.GetFileName(path));
+                    File.Copy(path, saved, true);
+                }
+                if (Settings.CopyToClipboard || action == AfterCapture.Copy)
+                {
+                    var list = new System.Collections.Specialized.StringCollection { saved ?? path };
+                    try { Clipboard.SetFileDropList(list); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                Toast.Notify("Fehler", ex.Message, null);
+            }
+
+            switch (action)
+            {
+                case AfterCapture.Editor:
+                    OpenVideoEditor(path, isTempRecording: saved == null);
+                    break;
+                case AfterCapture.Copy:
+                {
+                    var thumb = await VideoExporter.ThumbnailAsync(path);
+                    Toast.Notify("Video kopiert", "Zum Einfügen in Discord, Teams, Explorer … – klicken zum Bearbeiten.", thumb,
+                        () => OpenVideoEditor(path, saved == null), 6);
+                    break;
+                }
+                case AfterCapture.Save:
+                    if (saved != null)
+                    {
+                        var thumb = await VideoExporter.ThumbnailAsync(saved);
+                        Toast.Notify("Video gespeichert", Path.GetFileName(saved), thumb, () => OpenVideoEditor(saved, false), 6,
+                            ("Ordner öffnen", () => OpenFolder(saved, true)),
+                            ("Bearbeiten", () => OpenVideoEditor(saved, false)));
+                    }
+                    break;
+                case AfterCapture.Upload:
+                    await UploadFileAsync(path);
+                    break;
+            }
+        }
+
+        public void OpenVideoEditor(string path, bool isTempRecording)
+        {
+            var w = new VideoEditorWindow(path, isTempRecording);
+            w.Show();
+            w.Activate();
+        }
 
         public void HandleCapture(BitmapSource img, AfterCapture action)
         {
@@ -227,16 +349,33 @@ namespace SnipSnip
             w.Activate();
         }
 
-        public void OpenImageFile(Window? owner = null)
+        public static bool IsVideoFile(string path) =>
+            Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov" or ".mkv" or ".webm" or ".avi" or ".wmv" or ".m4v";
+
+        public void OpenFile(Window? owner = null)
         {
             var dlg = new OpenFileDialog
             {
-                Title = "Bild öffnen",
-                Filter = "Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|Alle Dateien|*.*"
+                Title = "Bild oder Video öffnen",
+                Filter = "Bilder und Videos|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v" +
+                         "|Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|Videos|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|Alle Dateien|*.*"
             };
             if (dlg.ShowDialog(owner) != true) return;
-            try { OpenEditor(ImageUtil.Load(dlg.FileName)); }
-            catch (Exception ex) { MessageBox.Show("Das Bild konnte nicht geöffnet werden:\n" + ex.Message, "SnipSnip"); }
+            OpenPath(dlg.FileName);
+        }
+
+        /// <summary>Öffnet ein Bild im Bild-Editor oder ein Video im Video-Editor.</summary>
+        public void OpenPath(string path)
+        {
+            try
+            {
+                if (IsVideoFile(path)) OpenVideoEditor(path, isTempRecording: false);
+                else if (ImageUtil.IsImageFile(path)) OpenEditor(ImageUtil.Load(path));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Die Datei konnte nicht geöffnet werden:\n" + ex.Message, "SnipSnip");
+            }
         }
 
         public static void OpenFolder(string path, bool selectFile = false)
@@ -261,7 +400,26 @@ namespace SnipSnip
 
         // ---------------------------------------------------------------- Upload
 
-        public async Task UploadAsync(BitmapSource img)
+        public Task UploadAsync(BitmapSource img) =>
+            UploadCoreAsync(async () => (await Task.Run(() => ImageUtil.Encode(img, "png")), ImageUtil.DefaultFileName("png")),
+                img, () => _ = UploadAsync(img));
+
+        /// <summary>Lädt eine Datei (MP4, GIF, PNG …) hoch.</summary>
+        public async Task UploadFileAsync(string path, BitmapSource? thumb = null)
+        {
+            thumb ??= IsVideoFile(path) ? await VideoExporter.ThumbnailAsync(path) : null;
+            long size = new FileInfo(path).Length;
+            if (size > 200L * 1024 * 1024)
+            {
+                Toast.Notify("Datei zu groß", $"{size / 1024 / 1024} MB – Imgur und catbox.moe erlauben höchstens 200 MB. " +
+                    "Tipp: im Video-Editor kürzen oder auf 50 % verkleinern.", thumb, null, 10);
+                return;
+            }
+            await UploadCoreAsync(async () => (await File.ReadAllBytesAsync(path), Path.GetFileName(path)),
+                thumb, () => _ = UploadFileAsync(path, thumb));
+        }
+
+        async Task UploadCoreAsync(Func<Task<(byte[] Data, string FileName)>> load, BitmapSource? thumb, Action retry)
         {
             var provider = Settings.Provider;
             if (provider == UploadProvider.Imgur && string.IsNullOrWhiteSpace(Settings.ImgurClientId))
@@ -278,14 +436,14 @@ namespace SnipSnip
             }
 
             string name = Uploader.Name(provider);
-            var toast = Toast.Notify("Wird hochgeladen …", $"zu {name}", img, null, 0);
+            var toast = Toast.Notify("Wird hochgeladen …", $"zu {name}", thumb, null, 0);
             toast.SetProgress(true);
 
             try
             {
-                byte[] png = await Task.Run(() => ImageUtil.Encode(img, "png"));
-                // Encode läuft auf einem Hintergrund-Thread -> img muss eingefroren sein (ist es).
-                var res = await Uploader.UploadAsync(png, provider, ImageUtil.DefaultFileName("png"));
+                // Bilder werden auf einem Hintergrund-Thread kodiert -> müssen eingefroren sein (sind sie).
+                var (data, fileName) = await load();
+                var res = await Uploader.UploadAsync(data, provider, fileName);
 
                 UploadHistory.Add(new UploadRecord { Time = DateTime.Now, Provider = name, Url = res.Url, DeleteUrl = res.DeleteUrl });
                 historyWindow?.Reload();
@@ -302,7 +460,7 @@ namespace SnipSnip
             catch (Exception ex)
             {
                 toast.Update("Upload fehlgeschlagen", ex.Message, null, 10,
-                    ("Erneut versuchen", () => _ = UploadAsync(img)),
+                    ("Erneut versuchen", retry),
                     ("Einstellungen", ShowSettings));
             }
         }

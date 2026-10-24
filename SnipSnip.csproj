@@ -11,15 +11,19 @@
     <RootNamespace>SnipSnip</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <!-- DPI-Einstellungen stehen bewusst im Manifest (WPF-App) -->
     <NoWarn>$(NoWarn);WFO0003</NoWarn>
     <Product>SnipSnip</Product>
-    <Description>Schönes Snipping Tool mit Editor, Zensur und Upload</Description>
+    <Description>Snipping Tool mit Bildschirmvideo, Editor, Zensur, Videoschnitt und Upload</Description>
   </PropertyGroup>
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
   </ItemGroup>
 
 </Project>

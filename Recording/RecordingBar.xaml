@@ -1,0 +1,26 @@
+<Window x:Class="SnipSnip.RecordingBar"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent" Topmost="True"
+        ShowInTaskbar="False" ShowActivated="False" ResizeMode="NoResize" SizeToContent="WidthAndHeight"
+        FontFamily="{StaticResource UiFont}" UseLayoutRounding="True" Title="SnipSnip Aufnahme">
+    <Border x:Name="Bar" Margin="12" Background="#F51D1D22" CornerRadius="12" BorderBrush="#33FFFFFF" BorderThickness="1"
+            Padding="10,5,6,5" MouseLeftButtonDown="Bar_MouseDown" Cursor="SizeAll">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.55"/>
+        </Border.Effect>
+        <StackPanel Orientation="Horizontal">
+            <Ellipse x:Name="Dot" Width="11" Height="11" Fill="#FFFF4D4F" VerticalAlignment="Center"/>
+            <TextBlock x:Name="TimeText" Text="00:00" Foreground="White" FontSize="14" FontFamily="Consolas"
+                       VerticalAlignment="Center" Margin="9,0,4,0" MinWidth="52"/>
+            <StackPanel x:Name="AudioIcons" Orientation="Horizontal" VerticalAlignment="Center" Margin="2,0,2,0" Opacity="0.75"/>
+            <Border Style="{StaticResource VSep}"/>
+            <Button x:Name="PauseBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconPause}" Cursor="Hand"
+                    ToolTip="Pause / Fortsetzen" Click="Pause_Click"/>
+            <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconStop}" Cursor="Hand" Foreground="#FFFF6B6B"
+                    ToolTip="Aufnahme beenden (Tastenkürzel erneut drücken)" Click="Stop_Click"/>
+            <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconTrash}" Cursor="Hand"
+                    ToolTip="Aufnahme verwerfen" Click="Discard_Click"/>
+        </StackPanel>
+    </Border>
+</Window>

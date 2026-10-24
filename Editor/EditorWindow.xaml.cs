@@ -995,16 +995,12 @@ namespace SnipSnip
         void Save_Click(object sender, RoutedEventArgs e) => Save();
         void Upload_Click(object sender, RoutedEventArgs e) => Upload();
         void NewSnip_Click(object sender, RoutedEventArgs e) => App.Instance.StartCapture(this);
-        void Open_Click(object sender, RoutedEventArgs e) => App.Instance.OpenImageFile(this);
+        void Open_Click(object sender, RoutedEventArgs e) => App.Instance.OpenFile(this);
 
         void Window_Drop(object sender, DragEventArgs e)
         {
             if (e.Data.GetData(DataFormats.FileDrop) is not string[] files) return;
-            foreach (var f in files.Where(ImageUtil.IsImageFile))
-            {
-                try { App.Instance.OpenEditor(ImageUtil.Load(f)); }
-                catch (Exception ex) { MessageBox.Show(this, ex.Message, "SnipSnip"); }
-            }
+            foreach (var f in files) App.Instance.OpenPath(f);
         }
 
         // ------------------------------------------------------------ Tastatur
@@ -1030,7 +1026,7 @@ namespace SnipSnip
                     case Key.S: Save(); break;
                     case Key.U: Upload(); break;
                     case Key.N: App.Instance.StartCapture(this); break;
-                    case Key.O: App.Instance.OpenImageFile(this); break;
+                    case Key.O: App.Instance.OpenFile(this); break;
                     case Key.D0: case Key.NumPad0: SetZoom(1); break;
                     case Key.D1: case Key.NumPad1: Fit(); break;
                     case Key.OemPlus: case Key.Add: SetZoom(zoom * 1.25); break;

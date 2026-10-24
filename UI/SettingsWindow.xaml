@@ -92,6 +92,44 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Video -->
+                <TextBlock Text="VIDEO" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <DockPanel>
+                            <Button x:Name="FfmpegBtn" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Tag="{StaticResource IconSave}"
+                                    Content="Einrichten …" Click="Ffmpeg_Click"/>
+                            <StackPanel>
+                                <TextBlock Text="FFmpeg (Kodierung, Schnitt, GIF)"/>
+                                <TextBlock x:Name="FfmpegStatus" Style="{StaticResource Note}" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock Text="Bilder pro Sekunde" Margin="0,12,0,0"/>
+                        <WrapPanel Margin="0,6,0,0">
+                            <RadioButton x:Name="Fps15" GroupName="Fps" Style="{StaticResource Seg}" Content="15"/>
+                            <RadioButton x:Name="Fps30" GroupName="Fps" Style="{StaticResource Seg}" Content="30"/>
+                            <RadioButton x:Name="Fps60" GroupName="Fps" Style="{StaticResource Seg}" Content="60"/>
+                        </WrapPanel>
+                        <TextBlock Text="Qualität" Margin="0,12,0,0"/>
+                        <WrapPanel Margin="0,6,0,0">
+                            <RadioButton x:Name="QHigh" GroupName="Q" Style="{StaticResource Seg}" Content="Hoch"/>
+                            <RadioButton x:Name="QMid" GroupName="Q" Style="{StaticResource Seg}" Content="Ausgewogen"/>
+                            <RadioButton x:Name="QSmall" GroupName="Q" Style="{StaticResource Seg}" Content="Klein"/>
+                        </WrapPanel>
+                        <CheckBox x:Name="SysAudioCheck" Style="{StaticResource DarkCheck}" Margin="0,12,0,5" Content="System-Ton aufnehmen"/>
+                        <CheckBox x:Name="MicCheck" Style="{StaticResource DarkCheck}" Content="Mikrofon aufnehmen"/>
+                        <CheckBox x:Name="CursorCheck" Style="{StaticResource DarkCheck}" Content="Mauszeiger im Video anzeigen"/>
+                        <CheckBox x:Name="ClicksCheck" Style="{StaticResource DarkCheck}" Content="Mausklicks hervorheben"/>
+                        <CheckBox x:Name="CountdownCheck" Style="{StaticResource DarkCheck}" Content="3-2-1-Countdown vor der Aufnahme"/>
+                        <TextBlock Text="Video-Ordner" Margin="0,12,0,0"/>
+                        <DockPanel Margin="0,6,0,0">
+                            <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Tag="{StaticResource IconFolder}"
+                                    Content="Durchsuchen …" Margin="6,0,0,0" Click="BrowseVideo_Click"/>
+                            <TextBox x:Name="VideoFolderBox" Style="{StaticResource DarkText}"/>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
                 <!-- Hochladen -->
                 <TextBlock Text="HOCHLADEN" Style="{StaticResource SectionHeader}"/>
                 <Border Style="{StaticResource Card}">

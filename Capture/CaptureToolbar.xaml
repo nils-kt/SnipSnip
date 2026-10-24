@@ -12,6 +12,17 @@
                 <TranslateTransform x:Name="Slide"/>
             </Border.RenderTransform>
             <StackPanel Orientation="Horizontal">
+                <!-- Foto / Video -->
+                <Border Background="#14FFFFFF" CornerRadius="8" Padding="2" Margin="0,0,2,0">
+                    <StackPanel Orientation="Horizontal">
+                        <RadioButton x:Name="MediaPhoto" GroupName="Media" Style="{StaticResource ToolToggle}"
+                                     Tag="{StaticResource IconCamera}" ToolTip="Bildschirmfoto" Checked="Media_Checked" Margin="0"/>
+                        <RadioButton x:Name="MediaVideo" GroupName="Media" Style="{StaticResource ToolToggle}"
+                                     Tag="{StaticResource IconVideo}" ToolTip="Bildschirmvideo aufnehmen" Checked="Media_Checked" Margin="0"/>
+                    </StackPanel>
+                </Border>
+                <Border Style="{StaticResource VSep}"/>
+
                 <!-- Modus -->
                 <RadioButton x:Name="ModeRect" GroupName="Mode" Style="{StaticResource ToolToggle}"
                              Tag="{StaticResource IconRect}" ToolTip="Rechteck  (1)" Checked="Mode_Checked"/>
@@ -23,6 +34,15 @@
                              Tag="{StaticResource IconFull}" ToolTip="Vollbild / Monitor  (4)" Checked="Mode_Checked"/>
 
                 <Border Style="{StaticResource VSep}"/>
+
+                <!-- Ton (nur Video) -->
+                <StackPanel x:Name="AudioPanel" Orientation="Horizontal" Visibility="Collapsed">
+                    <ToggleButton x:Name="SysAudioToggle" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconSpeaker}"
+                                  ToolTip="System-Ton aufnehmen" Click="Audio_Click"/>
+                    <ToggleButton x:Name="MicToggle" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconMic}"
+                                  ToolTip="Mikrofon aufnehmen" Click="Audio_Click"/>
+                    <Border Style="{StaticResource VSep}"/>
+                </StackPanel>
 
                 <!-- Verzögerung -->
                 <Button x:Name="DelayBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconTimer}"
@@ -36,7 +56,7 @@
                     </Button.ContextMenu>
                 </Button>
 
-                <Border Style="{StaticResource VSep}"/>
+                <Border x:Name="DelaySep" Style="{StaticResource VSep}"/>
 
                 <!-- Danach -->
                 <TextBlock Text="Danach" Foreground="{StaticResource FgDimBrush}" VerticalAlignment="Center"

@@ -4,7 +4,7 @@
 
 # SnipSnip
 
-**Ein schönes Snipping Tool für Windows mit Editor, Zensur und Upload mit einem Klick.**
+**Ein schönes Snipping Tool für Windows: Screenshots und Bildschirmvideos, mit Editor, Zensur, Videoschnitt und Upload mit einem Klick.**
 
 Drück <kbd>Pause</kbd>, zieh einen Bereich auf, und schon kannst du markieren, unkenntlich machen und teilen.
 
@@ -24,6 +24,7 @@ Drück <kbd>Pause</kbd>, zieh einen Bereich auf, und schon kannst du markieren, 
 
 Ein Druck auf <kbd>Pause</kbd> friert den Bildschirm ein, und oben in der Mitte erscheint die Aufnahmeleiste. Dort wählst du alles direkt aus:
 
+- **Foto oder Video:** ganz links zwischen Bildschirmfoto und Bildschirmvideo umschalten
 - **Modus:** Rechteck, Fenster, Freihand oder Vollbild/Monitor (Tasten <kbd>1</kbd>–<kbd>4</kbd>)
 - **Verzögerung:** Aufnahme nach 3, 5 oder 10 Sekunden
 - **Danach:** im Editor öffnen, kopieren, speichern oder **direkt hochladen** (Imgur / catbox.moe). Der Link landet dann in der Zwischenablage.
@@ -49,6 +50,33 @@ Ein Druck auf <kbd>Pause</kbd> friert den Bildschirm ein, und oben in der Mitte 
 
 Außerdem gibt es Rückgängig/Wiederholen, Zoom (<kbd>Strg</kbd>+Mausrad), Verschieben der Ansicht mit der mittleren Maustaste und Drag & Drop von Bildern. Die Freihand-Aufnahme behält Transparenz.
 
+### Bildschirmvideos aufnehmen
+
+In der Leiste auf **Video** umschalten und einen Bereich, ein Fenster oder einen Monitor wählen. Nach einem kurzen 3-2-1-Countdown läuft die Aufnahme. Erneut <kbd>Pause</kbd> drücken beendet sie.
+
+<img src="docs/images/recording.png" alt="Laufende Aufnahme mit gestricheltem Rahmen, Klick-Markierung und Steuerleiste">
+
+- **System-Ton und Mikrofon** lassen sich direkt in der Leiste zuschalten. Beide bleiben synchron zum Bild.
+- **Steuerleiste** mit Laufzeit, Pause/Fortsetzen, Stopp und Verwerfen. Leiste und Rahmen sind im Video selbst unsichtbar.
+- **Mauszeiger und Klicks** werden eingezeichnet. Klicks erscheinen als gelber Ring, damit Zuschauer sie sehen.
+- 15, 30 oder 60 Bilder pro Sekunde, H.264-MP4 mit wählbarer Qualität.
+
+### Video-Editor: schneiden, kürzen, als GIF exportieren
+
+<img src="docs/images/video-editor.png" alt="Video-Editor mit Vorschau, Zeitleiste aus Vorschaubildern, entfernten Abschnitten und Export-Optionen">
+
+| Aktion | Taste | |
+|---|:---:|---|
+| Abspielen / Pause | <kbd>Leertaste</kbd> | Entfernte Abschnitte werden in der Vorschau übersprungen. |
+| Bild für Bild | <kbd>←</kbd> <kbd>→</kbd> | mit <kbd>Umschalt</kbd> in 1-Sekunden-Schritten |
+| Anfang · Ende setzen | <kbd>A</kbd> · <kbd>E</kbd> | schneidet alles vor bzw. nach der Abspielposition weg |
+| Teilen | <kbd>S</kbd> | teilt an der Abspielposition |
+| Abschnitt entfernen / wiederherstellen | <kbd>Entf</kbd> | Abschnitt vorher in der Zeitleiste anklicken |
+
+Exportiert wird als **MP4** oder **GIF** (10/15/24 fps), in 100, 75 oder 50 % Größe, wahlweise ohne Ton. **Kopieren** legt die Videodatei in die Zwischenablage, sodass du sie direkt in Discord, Teams oder den Explorer einfügen kannst. **Hochladen** schickt sie zu Imgur oder catbox.moe.
+
+> Für Videos nutzt SnipSnip das freie [FFmpeg](https://ffmpeg.org). Fehlt es, bietet SnipSnip beim ersten Video an, es herunterzuladen: offizieller Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), per SHA-256 geprüft. Alternativ: `winget install Gyan.FFmpeg`.
+
 ### Einstellungen & Benachrichtigungen
 
 <table>
@@ -58,7 +86,8 @@ Außerdem gibt es Rückgängig/Wiederholen, Zoom (<kbd>Strg</kbd>+Mausrad), Vers
 
 - Tastenkürzel frei wählbar (<kbd>Pause</kbd>, <kbd>Druck</kbd>, <kbd>F9</kbd>, <kbd>Strg</kbd>+<kbd>Umschalt</kbd>+<kbd>S</kbd> …)
 - Jede Aufnahme automatisch kopieren und/oder speichern
-- PNG oder JPG, eigener Bilder-Ordner
+- PNG oder JPG, eigene Ordner für Bilder und Videos
+- Video: Bildrate, Qualität, Ton, Mauszeiger, Klick-Markierung, Countdown
 - Upload zu **Imgur** (eigene Client-ID) oder **catbox.moe** (ohne Konto)
 - Upload-Verlauf mit Lösch-Links für Imgur
 - Start mit Windows (im Tray)
@@ -97,6 +126,7 @@ Ohne Client-ID kannst du alternativ zu **catbox.moe** hochladen.
 | Aufruf | Wirkung |
 |---|---|
 | `SnipSnip.exe` | Startet im Tray. Läuft SnipSnip schon, startet direkt eine neue Aufnahme (praktisch als Taskleisten-Verknüpfung). |
+| `SnipSnip.exe <datei>` | Öffnet ein Bild im Editor oder ein Video im Video-Editor (auch per „Öffnen mit …“) |
 | `SnipSnip.exe --capture` | Startet sofort eine Aufnahme |
 | `SnipSnip.exe --tray` | Startet still im Tray (wird für den Autostart verwendet) |
 | `SnipSnip.exe --render-docs <ordner>` | Rendert die README-Bilder (siehe unten) |
@@ -121,7 +151,7 @@ dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=
 
 ### README-Bilder neu rendern
 
-Die Bilder in [`docs/images`](docs/images) sind **keine Screenshots**. SnipSnip rendert sie selbst aus den echten UI-Komponenten (Leiste, Overlay, Editor, Einstellungen, Toast). Der Hintergrund ist ein künstlicher Demo-Desktop mit fiktiven Daten. Nach UI-Änderungen genügt:
+Die Bilder in [`docs/images`](docs/images) sind **keine Screenshots**. SnipSnip rendert sie selbst aus den echten UI-Komponenten (Leiste, Overlay, Bild- und Video-Editor, Aufnahme-Leiste, Einstellungen, Toast). Der Hintergrund ist ein künstlicher Demo-Desktop mit fiktiven Daten. Nach UI-Änderungen genügt:
 
 ```bash
 dotnet run -- --render-docs docs/images
@@ -145,10 +175,12 @@ Die Pipeline baut die drei Varianten (x64, ARM64 und die kleine .NET-abhängige 
 ```
 App.xaml(.cs)          Tray, globales Tastenkürzel, Single-Instance, Aktionen nach der Aufnahme
 Capture/               Aufnahme-Session, Overlay pro Monitor, die Leiste oben, Countdown
-Editor/                Editor-Fenster, Annotationen (Formen, Text, Zensur)
-Core/                  Bildschirmaufnahme (GDI), Bild-Export, Upload, Einstellungen, Hotkey
-UI/                    Einstellungen, Upload-Verlauf, Toast-Benachrichtigung
-Rendering/DocRenderer.cs  Rendert die README-Bilder
+Editor/                Bild-Editor, Annotationen (Formen, Text, Zensur)
+Recording/             Videoaufnahme (GDI → FFmpeg, WASAPI-Ton), Steuerleiste, Rahmen
+Video/                 Video-Editor (Zeitleiste, Schnitt) und Export (MP4/GIF)
+Core/                  Bildschirmaufnahme, FFmpeg, Bild-Export, Upload, Einstellungen, Hotkey
+UI/                    Einstellungen, Upload-Verlauf, Toast, FFmpeg-Einrichtung
+Rendering/             Rendert die README-Bilder
 .github/workflows/     CI (Build + Render) und Release
 ```
 

@@ -63,6 +63,10 @@ namespace SnipSnip
             var editor = RenderEditor(desktop, wallpaper, crop, demo, B, out var annotated);
             Save(editor, outDir, "editor.png");
 
+            // 3b) Videoaufnahme: Rahmen + Steuerleiste, danach der Video-Editor
+            Save(RenderRecording(desktop, B(demo.Content), B(demo.Pdf)), outDir, "recording.png");
+            Save(RenderVideoEditor(desktop, wallpaper, B(demo.AppWindow)), outDir, "video-editor.png");
+
             // 4) Einstellungen
             Save(RenderSettings(wallpaper), outDir, "settings.png");
 
@@ -128,6 +132,73 @@ namespace SnipSnip
             var shot = Rasterize(Framed(root, "SnipSnip", 1200, 760, wallpaper), 1280, 840, () => export = ed.RenderImage());
             annotated = export!;
             ed.DocsClose();
+            return shot;
+        }
+
+        /// <summary>Laufende Aufnahme: gestrichelter Rahmen, Klick-Markierung und die Steuerleiste darunter.</summary>
+        static BitmapSource RenderRecording(BitmapSource desktop, Rect region, Rect clickTarget)
+        {
+            region.Inflate(-4, -4);
+            var g = new Grid { Width = W, Height = H };
+            g.Children.Add(new Image { Source = desktop, Stretch = Stretch.Fill });
+            var c = new Canvas();
+            g.Children.Add(c);
+
+            var frame = new Rectangle
+            {
+                Width = region.Width + 8,
+                Height = region.Height + 8,
+                Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0x4D, 0x4F)),
+                StrokeThickness = 2,
+                StrokeDashArray = new DoubleCollection { 5, 3 }
+            };
+            Canvas.SetLeft(frame, region.X - 4);
+            Canvas.SetTop(frame, region.Y - 4);
+            c.Children.Add(frame);
+
+            // Klick-Hervorhebung, wie sie im Video eingezeichnet wird
+            var ring = new Ellipse { Width = 30, Height = 30, Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x30)), StrokeThickness = 3 };
+            Canvas.SetLeft(ring, clickTarget.X + clickTarget.Width * 0.62 - 15);
+            Canvas.SetTop(ring, clickTarget.Y + clickTarget.Height / 2 - 15);
+            c.Children.Add(ring);
+
+            var bar = new RecordingBar(null!, new Rect(), true, true);
+            bar.UpdateTime(TimeSpan.FromSeconds(42));
+            bar.SetPaused(false);
+            var barRoot = Detach(bar);
+            barRoot.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            Canvas.SetLeft(barRoot, region.X + region.Width / 2 - barRoot.DesiredSize.Width / 2);
+            Canvas.SetTop(barRoot, region.Bottom + 2);
+            c.Children.Add(barRoot);
+
+            return Rasterize(g, W, H);
+        }
+
+        static BitmapSource RenderVideoEditor(BitmapSource desktop, BitmapSource wallpaper, Rect appWindow)
+        {
+            BitmapSource Crop(Rect dip)
+            {
+                var ir = new Int32Rect((int)(dip.X * Scale), (int)(dip.Y * Scale), (int)(dip.Width * Scale), (int)(dip.Height * Scale));
+                return ImageUtil.ToBgra(new CroppedBitmap(desktop, ir));
+            }
+
+            var poster = Crop(appWindow);
+            // Vorschaubilder: wandernder Ausschnitt, damit die Zeitleiste nach Bewegung aussieht
+            var thumbs = Enumerable.Range(0, 12).Select(i =>
+            {
+                double w = appWindow.Width * 0.62, h = w * 72 / 128;
+                double x = appWindow.X + (appWindow.Width - w) * (i / 11.0);
+                double y = appWindow.Y + 40 + (appWindow.Height - h - 40) * (0.5 + 0.5 * Math.Sin(i * 0.8));
+                return Crop(new Rect(x, y, w, h));
+            }).ToList();
+
+            var ed = new VideoEditorWindow("Aufnahme.mp4", false);
+            ed.DocsSetup(poster, thumbs, TimeSpan.FromSeconds(18.4), poster.PixelWidth & ~1, poster.PixelHeight & ~1,
+                new[] { (0.0, 2.2, true), (2.2, 9.6, false), (9.6, 11.4, true), (11.4, 18.4, false) },
+                position: 5.6, selectedIndex: 1);
+            var root = Detach(ed, close: false);
+            var shot = Rasterize(Framed(root, "SnipSnip – Aufnahme.mp4", 1200, 760, wallpaper), 1280, 840, ed.DocsRefresh);
+            ed.Close();
             return shot;
         }
 

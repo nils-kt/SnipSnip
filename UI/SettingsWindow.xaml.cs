@@ -39,6 +39,48 @@ namespace SnipSnip
 
             AutostartCheck.IsChecked = s.StartWithWindows;
             UpdateProviderUi();
+
+            Fps15.IsChecked = s.VideoFps <= 15;
+            Fps30.IsChecked = s.VideoFps > 15 && s.VideoFps < 60;
+            Fps60.IsChecked = s.VideoFps >= 60;
+            QHigh.IsChecked = s.VideoCrf <= 20;
+            QMid.IsChecked = s.VideoCrf > 20 && s.VideoCrf < 26;
+            QSmall.IsChecked = s.VideoCrf >= 26;
+            SysAudioCheck.IsChecked = s.RecordSystemAudio;
+            MicCheck.IsChecked = s.RecordMicrophone;
+            CursorCheck.IsChecked = s.VideoShowCursor;
+            ClicksCheck.IsChecked = s.VideoHighlightClicks;
+            CountdownCheck.IsChecked = s.RecordingCountdown;
+            VideoFolderBox.Text = s.VideoFolder;
+            UpdateFfmpegUi();
+        }
+
+        void UpdateFfmpegUi()
+        {
+            FFmpeg.ResetCache();
+            var path = FFmpeg.Find();
+            FfmpegStatus.Text = path != null ? "✓ Gefunden: " + path : "Nicht gefunden – wird für Videoaufnahmen benötigt.";
+            FfmpegStatus.Foreground = path != null
+                ? (System.Windows.Media.Brush)FindResource("FgDimBrush")
+                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x9F, 0x43));
+            FfmpegBtn.Content = path != null ? "Anderes wählen …" : "Einrichten …";
+        }
+
+        async void Ffmpeg_Click(object sender, RoutedEventArgs e)
+        {
+            if (FFmpeg.IsAvailable)
+            {
+                var dlg = new OpenFileDialog { Title = "ffmpeg.exe auswählen", Filter = "ffmpeg.exe|ffmpeg.exe|Programme (*.exe)|*.exe" };
+                if (dlg.ShowDialog(this) == true) App.Settings.FfmpegPath = dlg.FileName;
+            }
+            else await App.Instance.EnsureFfmpegAsync(this);
+            UpdateFfmpegUi();
+        }
+
+        void BrowseVideo_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFolderDialog { Title = "Video-Ordner wählen", InitialDirectory = VideoFolderBox.Text };
+            if (dlg.ShowDialog(this) == true) VideoFolderBox.Text = dlg.FolderName;
         }
 
         // --------------------------------------------------------- Tastenkürzel aufnehmen
@@ -125,6 +167,16 @@ namespace SnipSnip
             s.CopyLinkAfterUpload = CopyLinkCheck.IsChecked == true;
             s.OpenLinkAfterUpload = OpenLinkCheck.IsChecked == true;
             s.StartWithWindows = AutostartCheck.IsChecked == true;
+
+            s.VideoFps = Fps15.IsChecked == true ? 15 : Fps60.IsChecked == true ? 60 : 30;
+            s.VideoCrf = QHigh.IsChecked == true ? 18 : QSmall.IsChecked == true ? 28 : 23;
+            s.RecordSystemAudio = SysAudioCheck.IsChecked == true;
+            s.RecordMicrophone = MicCheck.IsChecked == true;
+            s.VideoShowCursor = CursorCheck.IsChecked == true;
+            s.VideoHighlightClicks = ClicksCheck.IsChecked == true;
+            s.RecordingCountdown = CountdownCheck.IsChecked == true;
+            s.VideoFolder = VideoFolderBox.Text.Trim();
+            s.FfmpegPath = App.Settings.FfmpegPath; // kann im Dialog geändert worden sein
 
             if (!App.Instance.ApplySettings(s))
             {

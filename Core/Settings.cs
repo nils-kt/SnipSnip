@@ -34,6 +34,22 @@ namespace SnipSnip
         public bool ShowMagnifier { get; set; } = true;
         public bool StartWithWindows { get; set; }
 
+        // ---- Video
+        /// <summary>Zuletzt gewählter Medientyp in der Leiste (Foto oder Video).</summary>
+        public bool VideoMode { get; set; }
+        public int VideoFps { get; set; } = 30;
+        /// <summary>x264-CRF: kleiner = bessere Qualität / größere Datei.</summary>
+        public int VideoCrf { get; set; } = 23;
+        public bool RecordSystemAudio { get; set; } = true;
+        public bool RecordMicrophone { get; set; }
+        public bool VideoShowCursor { get; set; } = true;
+        public bool VideoHighlightClicks { get; set; } = true;
+        public bool RecordingCountdown { get; set; } = true;
+        public string VideoFolder { get; set; } =
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "SnipSnip");
+        /// <summary>Optionaler fester Pfad zu ffmpeg.exe (leer = automatisch suchen).</summary>
+        public string FfmpegPath { get; set; } = "";
+
         public static string DataDir =>
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "SnipSnip");
 

@@ -26,11 +26,20 @@ namespace SnipSnip
             _ => p.ToString()
         };
 
-        public static Task<UploadResult> UploadAsync(byte[] png, UploadProvider provider, string fileName) =>
+        public static string MimeFor(string fileName) => System.IO.Path.GetExtension(fileName).ToLowerInvariant() switch
+        {
+            ".mp4" => "video/mp4",
+            ".gif" => "image/gif",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            _ => "image/png"
+        };
+
+        /// <summary>Lädt Bilder (PNG/JPG/GIF) oder Videos (MP4) hoch; der Typ ergibt sich aus der Dateiendung.</summary>
+        public static Task<UploadResult> UploadAsync(byte[] data, UploadProvider provider, string fileName) =>
             provider switch
             {
-                UploadProvider.Catbox => UploadCatboxAsync(png, fileName),
-                _ => UploadImgurAsync(png, fileName)
+                UploadProvider.Catbox => UploadCatboxAsync(data, fileName),
+                _ => UploadImgurAsync(data, fileName)
             };
 
         static async Task<UploadResult> UploadImgurAsync(byte[] png, string fileName)
@@ -40,12 +49,13 @@ namespace SnipSnip
 
             using var content = new MultipartFormDataContent();
             var file = new ByteArrayContent(png);
-            file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-            content.Add(file, "image", fileName);
+            string mime = MimeFor(fileName);
+            file.Headers.ContentType = new MediaTypeHeaderValue(mime);
+            content.Add(file, mime.StartsWith("video/") ? "video" : "image", fileName);
             content.Add(new StringContent("file"), "type");
             content.Add(new StringContent("SnipSnip"), "title");
 
-            using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.imgur.com/3/image") { Content = content };
+            using var req = new HttpRequestMessage(HttpMethod.Post, "https://api.imgur.com/3/upload") { Content = content };
             req.Headers.Authorization = new AuthenticationHeaderValue("Client-ID", id);
 
             using var resp = await Http.SendAsync(req).ConfigureAwait(false);
@@ -78,7 +88,7 @@ namespace SnipSnip
             using var content = new MultipartFormDataContent();
             content.Add(new StringContent("fileupload"), "reqtype");
             var file = new ByteArrayContent(png);
-            file.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+            file.Headers.ContentType = new MediaTypeHeaderValue(MimeFor(fileName));
             content.Add(file, "fileToUpload", fileName);
 
             using var resp = await Http.PostAsync("https://catbox.moe/user/api.php", content).ConfigureAwait(false);
