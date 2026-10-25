@@ -64,6 +64,7 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 - System-Ton, Mikrofon und **Webcam** direkt in der Leiste zuschalten. Alles bleibt synchron, auch bei Pause und Fortsetzen.
 - Steuerleiste mit Laufzeit, Pause, Stopp und Verwerfen. Leiste, Rahmen und **Sprechernotizen** sind im Video unsichtbar.
 - Desktop-Symbole ausblenden, Fenster vor der Aufnahme auf eine **exakte Größe** setzen (z. B. 1920 × 1080).
+- **Hardware-Kodierung** über die Grafikkarte (NVIDIA NVENC, AMD AMF, Intel Quick Sync), automatisch erkannt. Fällt sie aus, übernimmt die CPU ohne Unterbrechung, bei Aufnahme und Export.
 - Absturzsicher: Das Projekt wird laufend gespeichert und lässt sich nach einem Absturz wiederherstellen.
 - Datenschutz: Bei normalem Tippen wird nur der Zeitpunkt gespeichert, nicht die Taste.
 
@@ -81,7 +82,7 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 | **Tastatur** | Tastenkürzel einblenden, lange Tipp-Phasen automatisch beschleunigen |
 | **Bearbeitung** | Teilen, entfernen, beschleunigen (0,5× bis 8×); Masken (Weichzeichnen, Verpixeln, Abdecken mit Umgebungsfarbe, Hervorheben) direkt in der Vorschau ziehen; Rückgängig; Befehlspalette (<kbd>Strg</kbd>+<kbd>K</kbd>) |
 | **Ton** | Lautstärke je Spur, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife |
-| **Export** | MP4 in 720p bis 4K mit 30/60 fps, optimierte GIFs bis 1080p, Kopieren als Datei (für Discord, Teams …), Hochladen zu Imgur oder catbox.moe |
+| **Export** | MP4 in 720p bis 4K mit 30/60 fps, optimierte GIFs bis 1080p, Kopieren als Datei (für Discord, Teams …), Hochladen zu Imgur oder catbox.moe; parallel gerendert |
 | **Vorlagen** | Stile speichern und als Standard für neue Aufnahmen festlegen |
 
 <img src="docs/images/studio-zoom.png" alt="Automatischer Zoom auf die angeklickte Stelle mit weichgezeichneter IBAN und eingeblendetem Tastenkürzel">

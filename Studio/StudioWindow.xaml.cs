@@ -970,7 +970,8 @@ namespace SnipSnip
         void UpdateExportInfo()
         {
             var (w, h) = player.Renderer.OutputSize(exportGif ? Math.Min(ShortSide, 1080) : ShortSide);
-            ExportInfo.Text = $"{w} × {h}  ·  {Fmt(p.OutputDuration)}  ·  {(exportGif ? gifFps : App.Settings.ExportFps)} Bilder/s" +
+            string enc = App.Settings.HardwareEncoding ? (VideoEncoder.LastUsed is EncoderKind k ? VideoEncoder.Name(k) : "Grafikkarte, sonst CPU") : "CPU";
+            ExportInfo.Text = $"{w} × {h}  ·  {Fmt(p.OutputDuration)}  ·  {(exportGif ? gifFps : App.Settings.ExportFps)} Bilder/s  ·  Kodierung: {enc}" +
                               (exportGif ? "  ·  GIFs werden schnell groß – kurz halten." : "");
             UpdateOutInfo();
         }

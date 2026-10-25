@@ -59,7 +59,9 @@ namespace SnipSnip
             WinSize720.IsChecked = s.RecordWindowSize == "1280x720";
             WinSize1080.IsChecked = s.RecordWindowSize == "1920x1080";
             WinSize1440.IsChecked = s.RecordWindowSize == "2560x1440";
+            HwCheck.IsChecked = s.HardwareEncoding;
             Loaded += async (_, _) => await LoadWebcamsAsync();
+            Loaded += async (_, _) => await ShowEncoderAsync();
             VideoFolderBox.Text = s.VideoFolder;
             UpdateFfmpegUi();
         }
@@ -84,6 +86,19 @@ namespace SnipSnip
             }
             else await App.Instance.EnsureFfmpegAsync(this);
             UpdateFfmpegUi();
+        }
+
+        async System.Threading.Tasks.Task ShowEncoderAsync()
+        {
+            if (!FFmpeg.IsAvailable) { HwStatus.Text = "Benötigt FFmpeg."; return; }
+            HwStatus.Text = "Prüfe Grafikkarte …";
+            bool prev = App.Settings.HardwareEncoding;
+            App.Settings.HardwareEncoding = true; // nur zur Anzeige: was wäre verfügbar?
+            var best = await System.Threading.Tasks.Task.Run(VideoEncoder.Best);
+            App.Settings.HardwareEncoding = prev;
+            HwStatus.Text = best == EncoderKind.Cpu
+                ? "Kein nutzbarer Hardware-Encoder gefunden – es wird die CPU verwendet."
+                : $"Erkannt: {VideoEncoder.Name(best)}. Fällt die Grafikkarte aus, übernimmt automatisch die CPU.";
         }
 
         async System.Threading.Tasks.Task LoadWebcamsAsync()
@@ -202,6 +217,7 @@ namespace SnipSnip
             s.VideoCrf = QHigh.IsChecked == true ? 18 : QSmall.IsChecked == true ? 28 : 23;
             s.RecordSystemAudio = SysAudioCheck.IsChecked == true;
             s.RecordMicrophone = MicCheck.IsChecked == true;
+            s.HardwareEncoding = HwCheck.IsChecked == true;
             s.RecordWebcam = WebcamCheck.IsChecked == true;
             s.WebcamDevice = WebcamDevices.Children.OfType<RadioButton>().FirstOrDefault(r => r.IsChecked == true)?.Content as string ?? s.WebcamDevice;
             s.RecordingCountdown = CountdownCheck.IsChecked == true;

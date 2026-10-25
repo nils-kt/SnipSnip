@@ -40,6 +40,8 @@ namespace SnipSnip
         public int VideoFps { get; set; } = 30;
         /// <summary>x264-CRF: kleiner = bessere Qualität / größere Datei.</summary>
         public int VideoCrf { get; set; } = 23;
+        /// <summary>Grafikkarte zum Kodieren nutzen (NVENC/AMF/Quick Sync), mit Rückfall auf die CPU.</summary>
+        public bool HardwareEncoding { get; set; } = true;
         public bool RecordSystemAudio { get; set; } = true;
         public bool RecordMicrophone { get; set; }
         public bool RecordWebcam { get; set; }

@@ -116,7 +116,9 @@
                             <RadioButton x:Name="QMid" GroupName="Q" Style="{StaticResource Seg}" Content="Ausgewogen"/>
                             <RadioButton x:Name="QSmall" GroupName="Q" Style="{StaticResource Seg}" Content="Klein"/>
                         </WrapPanel>
-                        <CheckBox x:Name="SysAudioCheck" Style="{StaticResource DarkCheck}" Margin="0,12,0,5" Content="System-Ton aufnehmen"/>
+                        <CheckBox x:Name="HwCheck" Style="{StaticResource DarkCheck}" Margin="0,12,0,0" Content="Hardware-Kodierung (Grafikkarte) nutzen"/>
+                        <TextBlock x:Name="HwStatus" Style="{StaticResource Note}" Margin="28,0,0,4"/>
+                        <CheckBox x:Name="SysAudioCheck" Style="{StaticResource DarkCheck}" Margin="0,8,0,5" Content="System-Ton aufnehmen"/>
                         <CheckBox x:Name="MicCheck" Style="{StaticResource DarkCheck}" Content="Mikrofon aufnehmen"/>
                         <CheckBox x:Name="WebcamCheck" Style="{StaticResource DarkCheck}" Content="Webcam aufnehmen"/>
                         <WrapPanel x:Name="WebcamDevices" Margin="28,2,0,6"/>

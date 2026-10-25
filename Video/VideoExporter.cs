@@ -71,10 +71,10 @@ namespace SnipSnip
             }
             else
             {
-                f.Append($"[vc]{scale},format=yuv420p[out]");
+                f.Append($"[vc]{scale}[out]");
                 args.AddRange(new[] { "-filter_complex", f.ToString(), "-map", "[out]" });
                 if (audio) args.AddRange(new[] { "-map", "[ac]", "-c:a", "aac", "-b:a", "160k" });
-                args.AddRange(VideoEncoder.Args(App.Settings.VideoCrf, realtime: false));
+                args.AddRange(VideoEncoder.Args(EncoderKind.Cpu, App.Settings.VideoCrf, realtime: false));
                 args.AddRange(new[] { "-movflags", "+faststart", output });
             }
 

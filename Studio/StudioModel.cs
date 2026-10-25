@@ -208,7 +208,10 @@ namespace SnipSnip
 
         public static string NewDir()
         {
-            string d = System.IO.Path.Combine(ProjectsRoot, $"Aufnahme_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}");
+            // Eindeutig, auch in der doppelten Stunde bei der Zeitumstellung: nie einen vorhandenen Ordner wiederverwenden
+            string baseName = System.IO.Path.Combine(ProjectsRoot, $"Aufnahme_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}");
+            string d = baseName;
+            for (int i = 2; Directory.Exists(d); i++) d = $"{baseName}_{i}";
             Directory.CreateDirectory(d);
             return d;
         }
@@ -231,7 +234,9 @@ namespace SnipSnip
         /// <summary>Importiert ein vorhandenes Video als Projekt (ohne Cursor-Daten).</summary>
         public static StudioProject Import(string videoFile, MediaInfo info)
         {
-            string dir = System.IO.Path.Combine(ProjectsRoot, "Import_" + System.IO.Path.GetFileNameWithoutExtension(videoFile) + $"_{DateTime.Now:HHmmss}");
+            string baseDir = System.IO.Path.Combine(ProjectsRoot, "Import_" + System.IO.Path.GetFileNameWithoutExtension(videoFile) + $"_{DateTime.Now:yyyyMMdd_HHmmss}");
+            string dir = baseDir;
+            for (int i = 2; Directory.Exists(dir); i++) dir = $"{baseDir}_{i}";
             Directory.CreateDirectory(dir);
             var meta = new RecordingMeta
             {

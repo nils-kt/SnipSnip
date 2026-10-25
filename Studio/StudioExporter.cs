@@ -47,14 +47,35 @@ namespace SnipSnip
                 int fps = o.Gif ? Math.Max(o.GifFps, 10) : o.Fps;
                 string videoOut = o.Gif ? Path.Combine(tmp, "gif_source.mp4") : output;
 
-                var args = new List<string> { "-y", "-f", "rawvideo", "-pix_fmt", "bgra", "-video_size", $"{W}x{H}", "-framerate", fps.ToString(), "-i", "-" };
-                if (audio != null) { args.Add("-i"); args.Add(audio); }
-                args.AddRange(new[] { "-map", "0:v" });
-                if (audio != null) args.AddRange(new[] { "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest" });
-                args.AddRange(VideoEncoder.Args(o.Gif ? 14 : o.Crf, realtime: false));
-                args.AddRange(new[] { "-pix_fmt", "yuv420p", "-movflags", "+faststart", videoOut });
+                List<string> BuildArgs(EncoderKind kind)
+                {
+                    var args = new List<string> { "-y", "-f", "rawvideo", "-pix_fmt", "bgra", "-video_size", $"{W}x{H}", "-framerate", fps.ToString(), "-i", "-" };
+                    if (audio != null) { args.Add("-i"); args.Add(audio); }
+                    args.AddRange(new[] { "-map", "0:v" });
+                    if (audio != null) args.AddRange(new[] { "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest" });
+                    args.AddRange(VideoEncoder.Args(kind, o.Gif ? 14 : o.Crf, realtime: false));
+                    args.AddRange(new[] { "-movflags", "+faststart", videoOut });
+                    return args;
+                }
 
-                await Task.Run(() => RenderFrames(p, renderer, W, H, fps, dur, args, progress, ct), ct);
+                // Erst Hardware (falls vorhanden), bei einem Fehler automatisch noch einmal per CPU
+                var encoder = await Task.Run(VideoEncoder.Best, ct);
+                while (true)
+                {
+                    try
+                    {
+                        VideoEncoder.LastUsed = encoder;
+                        await Task.Run(() => RenderFrames(p, renderer, W, H, fps, dur, BuildArgs(encoder), progress, ct), ct);
+                        break;
+                    }
+                    catch (Exception) when (encoder != EncoderKind.Cpu && !ct.IsCancellationRequested)
+                    {
+                        VideoEncoder.MarkFailed(encoder);
+                        progress(0, $"{VideoEncoder.Name(encoder)} nicht nutzbar – exportiere per CPU …");
+                        encoder = EncoderKind.Cpu;
+                        try { if (File.Exists(videoOut)) File.Delete(videoOut); } catch { }
+                    }
+                }
 
                 if (o.Gif)
                 {

@@ -93,6 +93,7 @@ namespace SnipSnip
             System.Threading.Tasks.Task.Run(ScreenRecorder.CleanupOldTemp);
             DesktopIcons.Restore();
             Dispatcher.InvokeAsync(CheckCrashRecovery, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            VideoEncoder.WarmUp();
 
             hotkey = new HotkeyManager();
             hotkey.Pressed += () => StartCapture();

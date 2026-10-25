@@ -70,21 +70,8 @@ namespace SnipSnip
         public void Start()
         {
             var s = App.Settings;
-            var args = new List<string>
-            {
-                "-y", "-f", "rawvideo", "-pix_fmt", "bgr0", "-video_size", $"{w}x{h}", "-framerate", fps.ToString(), "-i", "-"
-            };
-            // hohe Qualität (wird später gezoomt) und häufige Keyframes für schnelles Springen im Editor
-            args.AddRange(VideoEncoder.Args(Math.Min(s.VideoCrf, 18), realtime: true));
-            args.AddRange(new[] { "-g", fps.ToString(), "-pix_fmt", "yuv420p", Path.Combine(dir, "screen.mkv") });
-            ffmpeg = FFmpeg.Start(args, redirectStdin: true);
-            _ = Task.Run(async () =>
-            {
-                string? line;
-                while ((line = await ffmpeg.StandardError.ReadLineAsync()) != null)
-                    lock (ffmpegLog) { ffmpegLog.Enqueue(line); if (ffmpegLog.Count > 10) ffmpegLog.Dequeue(); }
-            });
-            _ = ffmpeg.StandardOutput.ReadToEndAsync();
+            encoder = VideoEncoder.Best();
+            StartFfmpeg(encoder);
 
             if (s.RecordSystemAudio) meta.HasSystemAudio = TryAddAudio(true);
             if (s.RecordMicrophone) meta.HasMic = TryAddAudio(false);
@@ -105,6 +92,50 @@ namespace SnipSnip
             thread = new Thread(CaptureLoop) { IsBackground = true, Name = "SnipSnip.Recorder", Priority = ThreadPriority.AboveNormal };
             thread.Start();
             flushTimer = new System.Threading.Timer(_ => Flush(), null, 2000, 2000);
+        }
+
+        EncoderKind encoder;
+        bool switchedToCpu;
+
+        /// <summary>Encoder-Prozess starten (screen.mkv wird dabei neu angelegt).</summary>
+        void StartFfmpeg(EncoderKind kind)
+        {
+            var args = new List<string>
+            {
+                "-y", "-f", "rawvideo", "-pix_fmt", "bgr0", "-video_size", $"{w}x{h}", "-framerate", fps.ToString(), "-i", "-"
+            };
+            // hohe Qualität (wird später gezoomt) und häufige Keyframes für schnelles Springen im Editor
+            args.AddRange(VideoEncoder.Args(kind, Math.Min(App.Settings.VideoCrf, 18), realtime: true));
+            args.AddRange(new[] { "-g", fps.ToString(), Path.Combine(dir, "screen.mkv") });
+            var proc = FFmpeg.Start(args, redirectStdin: true);
+            ffmpeg = proc;
+            VideoEncoder.LastUsed = kind;
+            _ = Task.Run(async () =>
+            {
+                string? line;
+                while ((line = await proc.StandardError.ReadLineAsync()) != null)
+                    lock (ffmpegLog) { ffmpegLog.Enqueue(line); if (ffmpegLog.Count > 10) ffmpegLog.Dequeue(); }
+            });
+            _ = proc.StandardOutput.ReadToEndAsync();
+        }
+
+        /// <summary>
+        /// Hardware-Encoder ist ausgefallen: einmalig auf die CPU umschalten. Die Aufnahme läuft weiter;
+        /// die fehlenden Bilder werden über die Aufholschleife ergänzt, damit Ton und Cursor synchron bleiben.
+        /// </summary>
+        bool TrySwitchToCpu()
+        {
+            if (encoder == EncoderKind.Cpu || switchedToCpu || !running) return false;
+            switchedToCpu = true;
+            var failedKind = encoder;
+            VideoEncoder.MarkFailed(failedKind);
+            try { ffmpeg?.Kill(true); } catch { }
+            try { ffmpeg?.WaitForExit(2000); } catch { }
+            encoder = EncoderKind.Cpu;
+            StartFfmpeg(encoder);
+            Application.Current?.Dispatcher.InvokeAsync(() =>
+                Toast.Notify("Hardware-Kodierung nicht verfügbar", $"{VideoEncoder.Name(failedKind)} ist ausgefallen – die Aufnahme läuft per CPU weiter.", null, null, 6));
+            return true;
         }
 
         bool TryAddAudio(bool loopback)
@@ -187,15 +218,24 @@ namespace SnipSnip
                     Gdi.BitBlt(memDc, 0, 0, w, h, screenDc, x, y, Gdi.SRCCOPY);
                     Win.GdiFlush();
                     Marshal.Copy(bits, buf, 0, buf.Length);
-                    stdin.Write(buf, 0, buf.Length);
-                    n++;
-
-                    // Hinkt die Aufnahme hinterher, Bilder doppeln, damit Bild, Ton und Cursor-Zeit exakt passen.
-                    int dup = 0;
-                    while (running && !clock.IsPaused && clock.Elapsed.TotalSeconds >= (n + 1) * interval && dup++ < fps)
+                    try
                     {
                         stdin.Write(buf, 0, buf.Length);
                         n++;
+
+                        // Hinkt die Aufnahme hinterher, Bilder doppeln, damit Bild, Ton und Cursor-Zeit exakt passen.
+                        int dup = 0;
+                        while (running && !clock.IsPaused && clock.Elapsed.TotalSeconds >= (n + 1) * interval && dup++ < fps)
+                        {
+                            stdin.Write(buf, 0, buf.Length);
+                            n++;
+                        }
+                    }
+                    catch (IOException) when (TrySwitchToCpu())
+                    {
+                        // neuer Encoder-Prozess: von vorn schreiben – die Aufholschleife ergänzt die fehlende Zeit
+                        stdin = ffmpeg!.StandardInput.BaseStream;
+                        n = 0;
                     }
                 }
                 stdin.Flush();
@@ -382,36 +422,6 @@ namespace SnipSnip
             }
             capture.Dispose();
         }
-    }
-
-    /// <summary>Wählt den besten verfügbaren H.264-Encoder.</summary>
-    internal static class VideoEncoder
-    {
-        static string? encoder;
-
-        static string Detect()
-        {
-            if (encoder != null) return encoder;
-            try
-            {
-                using var p = FFmpeg.Start(new[] { "-encoders" });
-                _ = p.StandardError.ReadToEndAsync();
-                string list = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(5000);
-                encoder = list.Contains(" libx264 ") ? "libx264"
-                        : list.Contains(" h264_mf ") ? "h264_mf"
-                        : "mpeg4";
-            }
-            catch { encoder = "libx264"; }
-            return encoder;
-        }
-
-        public static IEnumerable<string> Args(int crf, bool realtime) => Detect() switch
-        {
-            "libx264" => new[] { "-c:v", "libx264", "-preset", realtime ? "veryfast" : "medium", "-crf", crf.ToString() },
-            "h264_mf" => new[] { "-c:v", "h264_mf", "-b:v", crf <= 20 ? "12M" : crf <= 24 ? "8M" : "4M" },
-            _ => new[] { "-c:v", "mpeg4", "-q:v", "3" }
-        };
     }
 
     internal static class Win
