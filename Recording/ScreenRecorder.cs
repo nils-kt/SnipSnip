@@ -355,17 +355,11 @@ namespace SnipSnip
         {
             Path = path;
             this.clock = clock;
-            capture = loopback ? new WasapiLoopbackCapture() : new WasapiCapture(DefaultMic(), true, 50);
+            capture = loopback ? new WasapiLoopbackCapture() : new WasapiCapture(AudioDevices.Microphone(App.Settings.MicrophoneDevice), true, 50);
             fmt = capture.WaveFormat;
             writer = new WaveFileWriter(path, fmt);
             capture.DataAvailable += OnData;
             capture.RecordingStopped += (_, _) => stopped.TrySetResult();
-        }
-
-        static MMDevice DefaultMic()
-        {
-            using var en = new MMDeviceEnumerator();
-            return en.GetDefaultAudioEndpoint(DataFlow.Capture, Role.Console);
         }
 
         public void Start() => capture.StartRecording();

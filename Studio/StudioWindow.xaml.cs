@@ -46,8 +46,8 @@ namespace SnipSnip
         {
             InitializeComponent();
             p = project;
-            ProjectName.Text = p.Name;
-            Title = $"SnipSnip Studio – {p.Name}";
+            UpdateTitle();
+            OpenWindows.Add(this);
 
             player = new StudioPlayer(p);
             player.FrameReady += () => Preview.Source = player.Bitmap;
@@ -80,6 +80,102 @@ namespace SnipSnip
             UpdateOutInfo();
             UpdateUndoUi();
             Loaded += async (_, _) => await LoadThumbsAsync();
+        }
+
+        // ================================================================== Projekt: Name, Datei, offene Fenster
+
+        static readonly List<StudioWindow> OpenWindows = new();
+
+        public StudioProject Project => p;
+
+        /// <summary>Das Studio-Fenster, in dem dieses Projekt gerade offen ist (oder null).</summary>
+        public static StudioWindow? Find(string dir) =>
+            OpenWindows.FirstOrDefault(w => string.Equals(IOPath.GetFullPath(w.p.Dir).TrimEnd('\\'), IOPath.GetFullPath(dir).TrimEnd('\\'), StringComparison.OrdinalIgnoreCase));
+
+        void UpdateTitle()
+        {
+            ProjectName.Text = p.Name;
+            Title = $"SnipSnip Studio – {p.Name}";
+        }
+
+        public void Rename(string name)
+        {
+            name = name.Trim();
+            if (name.Length == 0 || name == p.Name) return;
+            Change(() => p.Edits.Title = name == p.FolderName ? null : name);
+            UpdateTitle();
+        }
+
+        void ProjectName_Click(object sender, MouseButtonEventArgs e)
+        {
+            ProjectNameBox.Text = p.Name;
+            ProjectName.Visibility = Visibility.Hidden;
+            ProjectNameBox.Visibility = Visibility.Visible;
+            ProjectNameBox.Focus();
+            ProjectNameBox.SelectAll();
+            e.Handled = true;
+        }
+
+        void EndRename(bool commit)
+        {
+            if (ProjectNameBox.Visibility != Visibility.Visible) return;
+            ProjectNameBox.Visibility = Visibility.Collapsed;
+            ProjectName.Visibility = Visibility.Visible;
+            if (commit) Rename(ProjectNameBox.Text);
+        }
+
+        void ProjectNameBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Enter) { EndRename(true); e.Handled = true; }
+            else if (e.Key == Key.Escape) { EndRename(false); e.Handled = true; }
+        }
+
+        void ProjectNameBox_LostFocus(object sender, KeyboardFocusChangedEventArgs e) => EndRename(true);
+
+        void Projects_Click(object sender, RoutedEventArgs e) => App.Instance.ShowProjects();
+
+        void SaveProjectFile_Click(object sender, RoutedEventArgs e) => _ = SaveProjectFileAsync();
+
+        async Task SaveProjectFileAsync()
+        {
+            SaveNow();
+            await SaveProjectFileAsync(p, this);
+        }
+
+        /// <summary>Fragt nach dem Ziel und packt das Projekt als .snipsnip-Datei (mit Fortschritt in einer Meldung).</summary>
+        public static async Task SaveProjectFileAsync(StudioProject project, Window owner)
+        {
+            var dlg = new SaveFileDialog
+            {
+                Title = "Projekt als Datei speichern",
+                Filter = $"SnipSnip-Projekt (*{ProjectArchive.Extension})|*{ProjectArchive.Extension}",
+                FileName = project.FileName + ProjectArchive.Extension,
+                AddExtension = true
+            };
+            try { Directory.CreateDirectory(App.Settings.VideoFolder); dlg.InitialDirectory = App.Settings.VideoFolder; } catch { }
+            if (dlg.ShowDialog(owner) != true) return;
+            string file = dlg.FileName;
+            var toast = Toast.Notify("Projekt wird gespeichert …", IOPath.GetFileName(file), null, null, 0);
+            toast.SetProgress(true);
+            int last = -1;
+            try
+            {
+                await ProjectArchive.SaveAsync(project, file, new Progress<double>(v =>
+                {
+                    int pct = (int)(v * 100);
+                    if (pct == last) return;
+                    last = pct;
+                    toast.Update("Projekt wird gespeichert …", $"{IOPath.GetFileName(file)}  ·  {pct} %", null, 0);
+                    toast.SetProgress(true);
+                }));
+                long mb = new FileInfo(file).Length / 1024 / 1024;
+                toast.Update("Projekt gespeichert", $"{IOPath.GetFileName(file)}  ·  {mb} MB – mit „Öffnen“ in SnipSnip wieder laden.",
+                    () => App.OpenFolder(file, true), 8, ("Ordner öffnen", () => App.OpenFolder(file, true)));
+            }
+            catch (Exception ex)
+            {
+                toast.Update("Speichern fehlgeschlagen", ex.Message, null, 10);
+            }
         }
 
         // ================================================================== Zeit & Vorschau
@@ -795,7 +891,9 @@ namespace SnipSnip
             }, St.ClickEffect, v => St.ClickEffect = v, rebuildTab: true);
             if (St.ClickEffect != ClickEffect.None)
                 ColorRow("Klick-Farbe", St.ClickColor, v => St.ClickColor = v);
-            Toggle("Klick-Geräusch im Export", St.ClickSound, v => St.ClickSound = v);
+            Toggle("Klick-Geräusch (Vorschau und Export)", St.ClickSound, v => { St.ClickSound = v; Dispatcher.InvokeAsync(() => ShowTab(tab)); });
+            if (St.ClickSound)
+                SliderRow("Klick-Lautstärke", 0, 150, St.ClickVolume * 100, v => St.ClickVolume = v / 100, Pct);
 
             Header("Scheinwerfer");
             Toggle("Alles außer der Cursor-Umgebung abdunkeln", St.Spotlight, v => { St.Spotlight = v; Dispatcher.InvokeAsync(() => ShowTab(tab)); });
@@ -816,7 +914,20 @@ namespace SnipSnip
                 return;
             }
             Choice("Layout", new[] { ("Nur Bildschirm", CamLayout.ScreenOnly), ("Overlay", CamLayout.Overlay), ("Geteilt", CamLayout.Split), ("Nur Kamera", CamLayout.CameraOnly) },
-                St.Layout, v => St.Layout = v);
+                St.Layout, v => St.Layout = v, rebuildTab: true);
+            if (St.Layout == CamLayout.Split || p.Edits.Layouts.Any(l => l.Layout == CamLayout.Split))
+            {
+                Header("Geteilt");
+                Choice("Darstellung", new[] { ("Im Rahmen", false), ("Randlos", true) }, St.SplitBorderless, v => St.SplitBorderless = v, rebuildTab: true);
+                bool portrait = player.Renderer.OutputAspect < 1;
+                Choice("Kamera", portrait ? new[] { ("Oben", true), ("Unten", false) } : new[] { ("Links", true), ("Rechts", false) },
+                    St.SplitCamFirst, v => St.SplitCamFirst = v);
+                SliderRow(portrait ? "Kamera-Höhe" : "Kamera-Breite", 15, 60, St.SplitCamWidth, v => St.SplitCamWidth = Math.Round(v), Pct);
+                Note(St.SplitBorderless
+                    ? "Randlos: Aufnahme und Kamera füllen das ganze Bild – ohne Hintergrund, Rahmen und Schatten. Mit Seitenverhältnis „Auto“ passt die Aufnahme exakt in voller Auflösung daneben."
+                    : "Im Rahmen: Aufnahme und Kamera stehen mit Abstand auf dem Hintergrund (Hintergrund- und Rahmen-Tab).");
+                Header("Kamera");
+            }
             Choice("Position", new[] { ("Unten rechts", CamCorner.BottomRight), ("Unten links", CamCorner.BottomLeft), ("Oben rechts", CamCorner.TopRight), ("Oben links", CamCorner.TopLeft) },
                 St.CamCorner, v => St.CamCorner = v);
             Choice("Form", new[] { ("Kreis", CamShape.Circle), ("Abgerundet", CamShape.Rounded), ("Eckig", CamShape.Square) }, St.CamShape, v => St.CamShape = v);
@@ -1356,7 +1467,7 @@ namespace SnipSnip
             {
                 Title = "Video exportieren",
                 Filter = exportGif ? "GIF-Animation (*.gif)|*.gif" : "MP4-Video (*.mp4)|*.mp4",
-                FileName = $"{p.Name}.{ext}",
+                FileName = $"{p.FileName}.{ext}",
                 AddExtension = true
             };
             try { Directory.CreateDirectory(App.Settings.VideoFolder); dlg.InitialDirectory = App.Settings.VideoFolder; } catch { }
@@ -1399,7 +1510,7 @@ namespace SnipSnip
                 {
                     Title = "Standbild speichern",
                     Filter = "PNG-Bild (*.png)|*.png",
-                    FileName = $"{p.Name}_{player.OutTime:0.0}s.png".Replace(',', '-'),
+                    FileName = $"{p.FileName}_{player.OutTime:0.0}s.png".Replace(',', '-'),
                     AddExtension = true
                 };
                 try { Directory.CreateDirectory(App.Settings.SaveFolder); dlg.InitialDirectory = App.Settings.SaveFolder; } catch { }
@@ -1490,7 +1601,10 @@ namespace SnipSnip
             ("Rückgängig", Undo),
             ("Wiederholen", Redo),
             ("Neue Videoaufnahme", () => App.Instance.StartCapture(this, video: true)),
-            ("Projektordner öffnen", () => App.OpenFolder(p.Dir))
+            ("Projektordner öffnen", () => App.OpenFolder(p.Dir)),
+            ("Projekt als Datei speichern …", () => _ = SaveProjectFileAsync()),
+            ("Projekt umbenennen", () => ProjectName_Click(ProjectName, new MouseButtonEventArgs(Mouse.PrimaryDevice, 0, MouseButton.Left))),
+            ("Alle Projekte", App.Instance.ShowProjects)
         };
 
         void SelectTab(string key)
@@ -1576,6 +1690,7 @@ namespace SnipSnip
                     case Key.E: ShowExport(); break;
                     case Key.N: App.Instance.StartCapture(this, video: true); break;
                     case Key.O: App.Instance.OpenFile(this); break;
+                    case Key.S when shift: _ = SaveProjectFileAsync(); break;
                     case Key.S: SaveNow(); break;
                     default: e.Handled = false; break;
                 }
@@ -1607,8 +1722,10 @@ namespace SnipSnip
         {
             exportCts?.Cancel();
             saveTimer.Stop();
+            EndRename(true);
             SaveNow();
             player.Dispose();
+            OpenWindows.Remove(this);
             base.OnClosing(e);
         }
 

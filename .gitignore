@@ -6,3 +6,6 @@ artifacts/
 .vs/
 *.user
 docs/images/render-error.txt
+
+# Hörbeispiele und Vorschauen aus der Entwicklung
+.preview/

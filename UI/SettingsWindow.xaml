@@ -120,6 +120,7 @@
                         <TextBlock x:Name="HwStatus" Style="{StaticResource Note}" Margin="28,0,0,4"/>
                         <CheckBox x:Name="SysAudioCheck" Style="{StaticResource DarkCheck}" Margin="0,8,0,5" Content="System-Ton aufnehmen"/>
                         <CheckBox x:Name="MicCheck" Style="{StaticResource DarkCheck}" Content="Mikrofon aufnehmen"/>
+                        <WrapPanel x:Name="MicDevices" Margin="28,2,0,6"/>
                         <CheckBox x:Name="WebcamCheck" Style="{StaticResource DarkCheck}" Content="Webcam aufnehmen"/>
                         <WrapPanel x:Name="WebcamDevices" Margin="28,2,0,6"/>
                         <CheckBox x:Name="CountdownCheck" Style="{StaticResource DarkCheck}" Content="3-2-1-Countdown vor der Aufnahme"/>
@@ -168,6 +169,27 @@
                         <CheckBox x:Name="CopyLinkCheck" Style="{StaticResource DarkCheck}" Margin="0,10,0,5"
                                   Content="Link nach dem Hochladen in die Zwischenablage kopieren"/>
                         <CheckBox x:Name="OpenLinkCheck" Style="{StaticResource DarkCheck}" Content="Link nach dem Hochladen im Browser öffnen"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- KI-Assistenten -->
+                <TextBlock Text="KI-ASSISTENTEN (MCP)" Style="{StaticResource SectionHeader}"/>
+                <Border Style="{StaticResource Card}">
+                    <StackPanel>
+                        <TextBlock TextWrapping="Wrap">
+                            Claude und andere KI-Assistenten können SnipSnip über MCP steuern: Screenshots machen, Bereiche zensieren,
+                            Videos aufnehmen, im Studio gestalten, exportieren und hochladen.
+                        </TextBlock>
+                        <TextBlock Text="Claude Code" Margin="0,10,0,0"/>
+                        <TextBox x:Name="McpCommandBox" Style="{StaticResource DarkText}" Margin="0,6,0,0" FontFamily="Consolas" IsReadOnly="True" TextWrapping="Wrap"/>
+                        <WrapPanel Margin="0,8,0,0">
+                            <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconCopy}" Content="Befehl kopieren" Click="McpCopyCommand_Click" Margin="0,0,6,0"/>
+                            <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconCopy}" Content="Konfiguration für Claude Desktop kopieren" Click="McpCopyJson_Click"/>
+                        </WrapPanel>
+                        <TextBlock Style="{StaticResource Note}">
+                            Den Befehl in einem Terminal ausführen. Für Claude Desktop die Konfiguration unter „Einstellungen → Entwickler → Konfiguration bearbeiten“
+                            in claude_desktop_config.json einfügen. Aufnahmen über MCP zeigen immer einen roten Rahmen.
+                        </TextBlock>
                     </StackPanel>
                 </Border>
 

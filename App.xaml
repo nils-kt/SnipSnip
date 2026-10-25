@@ -79,6 +79,7 @@
         <Geometry x:Key="IconFrame">M4,4 H20 V20 H4 Z M8,8 H16 V16 H8 Z</Geometry>
         <Geometry x:Key="IconMask">M3,6 H21 V18 H3 Z M7,10 H17 V14 H7 Z</Geometry>
         <Geometry x:Key="IconStar">M12,3 L14.6,9 L21,9.6 L16.1,13.8 L17.6,20.2 L12,16.8 L6.4,20.2 L7.9,13.8 L3,9.6 L9.4,9 Z</Geometry>
+        <Geometry x:Key="IconChevron">M7,10 L12,15 L17,10</Geometry>
         <Geometry x:Key="IconSparkle">M11,3 L12.8,9.2 L19,11 L12.8,12.8 L11,19 L9.2,12.8 L3,11 L9.2,9.2 Z M18.5,2.5 V7.5 M16,5 H21</Geometry>
         <Geometry x:Key="IconExport">M12,15 V3 M7,8 L12,3 L17,8 M5,14 V21 H19 V14</Geometry>
         <Geometry x:Key="IconSpeed">M4,18 A9,9 0 1 1 20,18 M12,13 L16,8</Geometry>

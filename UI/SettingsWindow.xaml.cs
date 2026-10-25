@@ -14,6 +14,7 @@ namespace SnipSnip
 
         public SettingsWindow()
         {
+            Loaded += (_, _) => McpCommandBox.Text = McpCommand;
             InitializeComponent();
             s = App.Settings.Clone();
             vk = s.HotkeyVk;
@@ -61,6 +62,7 @@ namespace SnipSnip
             WinSize1440.IsChecked = s.RecordWindowSize == "2560x1440";
             HwCheck.IsChecked = s.HardwareEncoding;
             Loaded += async (_, _) => await LoadWebcamsAsync();
+            LoadMicrophones();
             Loaded += async (_, _) => await ShowEncoderAsync();
             VideoFolderBox.Text = s.VideoFolder;
             UpdateFfmpegUi();
@@ -99,6 +101,36 @@ namespace SnipSnip
             HwStatus.Text = best == EncoderKind.Cpu
                 ? "Kein nutzbarer Hardware-Encoder gefunden – es wird die CPU verwendet."
                 : $"Erkannt: {VideoEncoder.Name(best)}. Fällt die Grafikkarte aus, übernimmt automatisch die CPU.";
+        }
+
+        void LoadMicrophones()
+        {
+            MicDevices.Children.Clear();
+            var list = AudioDevices.Microphones();
+            if (list.Count == 0)
+            {
+                MicDevices.Children.Add(new TextBlock { Text = "Kein Mikrofon gefunden.", Style = (Style)FindResource("Note") });
+                return;
+            }
+            bool known = list.Any(m => m.Id == s.MicrophoneDevice);
+            MicDevices.Children.Add(new RadioButton
+            {
+                Content = "Windows-Standard",
+                Tag = "",
+                GroupName = "Mic",
+                Style = (Style)FindResource("Seg"),
+                ToolTip = AudioDevices.DefaultMicrophoneName(),
+                IsChecked = !known
+            });
+            foreach (var (id, name) in list)
+                MicDevices.Children.Add(new RadioButton
+                {
+                    Content = name,
+                    Tag = id,
+                    GroupName = "Mic",
+                    Style = (Style)FindResource("Seg"),
+                    IsChecked = id == s.MicrophoneDevice
+                });
         }
 
         async System.Threading.Tasks.Task LoadWebcamsAsync()
@@ -192,6 +224,31 @@ namespace SnipSnip
 
         void DataFolder_Click(object sender, RoutedEventArgs e) => App.OpenFolder(AppSettings.DataDir);
 
+        // ---------------------------------------------------------------- MCP
+
+        /// <summary>Pfad zur EXE für die MCP-Konfiguration (für die README-Bilder neutral).</summary>
+        internal static string? DocsExePath;
+
+        static string ExePath => DocsExePath ?? System.Environment.ProcessPath ?? "SnipSnip.exe";
+
+        static string McpCommand => $"claude mcp add snipsnip -- \"{ExePath}\" --mcp";
+
+        static string McpJson =>
+            "{\n  \"mcpServers\": {\n    \"snipsnip\": {\n      \"command\": " + System.Text.Json.JsonSerializer.Serialize(ExePath) +
+            ",\n      \"args\": [\"--mcp\"]\n    }\n  }\n}";
+
+        void McpCopyCommand_Click(object sender, RoutedEventArgs e)
+        {
+            ImageUtil.CopyText(McpCommand);
+            ((System.Windows.Controls.Button)sender).Content = "Kopiert ✓";
+        }
+
+        void McpCopyJson_Click(object sender, RoutedEventArgs e)
+        {
+            ImageUtil.CopyText(McpJson);
+            ((System.Windows.Controls.Button)sender).Content = "Kopiert ✓";
+        }
+
         void Cancel_Click(object sender, RoutedEventArgs e) => Close();
 
         void Save_Click(object sender, RoutedEventArgs e)
@@ -217,6 +274,7 @@ namespace SnipSnip
             s.VideoCrf = QHigh.IsChecked == true ? 18 : QSmall.IsChecked == true ? 28 : 23;
             s.RecordSystemAudio = SysAudioCheck.IsChecked == true;
             s.RecordMicrophone = MicCheck.IsChecked == true;
+            s.MicrophoneDevice = MicDevices.Children.OfType<RadioButton>().FirstOrDefault(r => r.IsChecked == true)?.Tag as string ?? s.MicrophoneDevice;
             s.HardwareEncoding = HwCheck.IsChecked == true;
             s.RecordWebcam = WebcamCheck.IsChecked == true;
             s.WebcamDevice = WebcamDevices.Children.OfType<RadioButton>().FirstOrDefault(r => r.IsChecked == true)?.Content as string ?? s.WebcamDevice;

@@ -96,6 +96,7 @@ namespace SnipSnip
         public double IdleSeconds { get; set; } = 2.5;
         public ClickEffect ClickEffect { get; set; } = ClickEffect.Ripple;
         public bool ClickSound { get; set; }
+        public double ClickVolume { get; set; } = 0.7;
         public bool LoopCursor { get; set; }
         public CursorStyle CursorStyle { get; set; } = CursorStyle.Original;
         /// <summary>Farbe für farbige Cursor-Stile, Leuchtkreis und Scheinwerfer-Rand.</summary>
@@ -124,6 +125,12 @@ namespace SnipSnip
         public double CamSaturation { get; set; }
         public double CamWarmth { get; set; }
         public bool CamSharpen { get; set; }
+        /// <summary>Geteiltes Layout: randlos (bildfüllend, ohne Hintergrund) statt im Rahmen.</summary>
+        public bool SplitBorderless { get; set; }
+        /// <summary>Geteiltes Layout: Kamera links (bzw. oben) statt rechts (bzw. unten).</summary>
+        public bool SplitCamFirst { get; set; }
+        /// <summary>Geteiltes Layout: Anteil der Kamera an der Breite (bzw. Höhe) in Prozent.</summary>
+        public double SplitCamWidth { get; set; } = 32;
 
         // Tastatur
         public bool ShowKeys { get; set; } = true;
@@ -286,6 +293,8 @@ namespace SnipSnip
         public List<MaskSegment> Masks { get; set; } = new();
         public List<LayoutSegment> Layouts { get; set; } = new();
         public List<TextSegment> Texts { get; set; } = new();
+        /// <summary>Eigener Projektname (sonst der Ordnername).</summary>
+        public string? Title { get; set; }
         /// <summary>Zuschnitt relativ (0..1).</summary>
         public double CropX { get; set; }
         public double CropY { get; set; }
@@ -305,7 +314,18 @@ namespace SnipSnip
         public ProjectEdits Edits { get; set; } = new();
         public InputData Input { get; private set; } = InputData.Empty;
 
-        public string Name => System.IO.Path.GetFileName(Dir);
+        /// <summary>Anzeigename: eigener Titel oder Ordnername.</summary>
+        public string Name => string.IsNullOrWhiteSpace(Edits.Title) ? FolderName : Edits.Title.Trim();
+        public string FolderName => System.IO.Path.GetFileName(Dir);
+        /// <summary>Name für Dateien (ohne unzulässige Zeichen).</summary>
+        public string FileName => SafeFileName(Name);
+
+        public static string SafeFileName(string s)
+        {
+            foreach (char ch in System.IO.Path.GetInvalidFileNameChars()) s = s.Replace(ch, '_');
+            s = s.Trim().TrimEnd('.');
+            return s.Length == 0 ? "Projekt" : s;
+        }
         public string ScreenFile => Meta.SourceFile ?? System.IO.Path.Combine(Dir, "screen.mkv");
         public string? SystemAudio => Meta.HasSystemAudio ? System.IO.Path.Combine(Dir, "system.wav") : null;
         public string? MicAudio => Meta.HasMic ? System.IO.Path.Combine(Dir, "mic.wav") : null;

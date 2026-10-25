@@ -61,7 +61,7 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 <img src="docs/images/studio-frame.png" alt="Fertiges Video: Aufnahme mit abgerundeten Ecken und Schatten auf einem Wallpaper">
 
 **Aufnahme**
-- System-Ton, Mikrofon und **Webcam** direkt in der Leiste zuschalten. Alles bleibt synchron, auch bei Pause und Fortsetzen.
+- System-Ton, Mikrofon und **Webcam** direkt in der Leiste zuschalten, das **Mikrofon** per Pfeil daneben auswählen. Alles bleibt synchron, auch bei Pause und Fortsetzen.
 - Steuerleiste mit Laufzeit, Pause, Stopp und Verwerfen. Leiste, Rahmen und **Sprechernotizen** sind im Video unsichtbar.
 - Desktop-Symbole ausblenden, Fenster vor der Aufnahme auf eine **exakte Größe** setzen (z. B. 1920 × 1080).
 - **Hardware-Kodierung** über die Grafikkarte (NVIDIA NVENC, AMD AMF, Intel Quick Sync), automatisch erkannt. Fällt sie aus, übernimmt die CPU ohne Unterbrechung, bei Aufnahme und Export.
@@ -75,12 +75,12 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 | Bereich | Was geht |
 |---|---|
 | **Kamera & Zoom** | Automatische Zooms bei Klicks und Tastenkürzeln, manuelle Zooms auf der Zeitleiste, die Kamera folgt weich dem Cursor oder einem festen Punkt, Lupen-Zoom, Bewegungsunschärfe |
-| **Cursor** | 8 Stile (Original, macOS, Windows, Modern, Farbig, Punkt, Ring, Touch) in beliebiger Farbe, geglättete Mausbahn, Größe, Leuchtkreis, Neigung in Bewegungsrichtung, **Scheinwerfer** (dunkelt alles außer der Cursor-Umgebung ab), Ausblenden im Ruhezustand, 5 Klick-Effekte (Kreis, Welle, Puls, Strahlen, Fokus) in eigener Farbe, Klick-Geräusche, Cursor-Loop. Der Textcursor passt seine Farbe dem Hintergrund an. |
+| **Cursor** | 8 Stile (Original, macOS, Windows, Modern, Farbig, Punkt, Ring, Touch) in beliebiger Farbe, geglättete Mausbahn, Größe, Leuchtkreis, Neigung in Bewegungsrichtung, **Scheinwerfer** (dunkelt alles außer der Cursor-Umgebung ab), Ausblenden im Ruhezustand, 5 Klick-Effekte (Kreis, Welle, Puls, Strahlen, Fokus) in eigener Farbe, realistische Klick-Geräusche (Drücken und Loslassen), Cursor-Loop. Der Textcursor passt seine Farbe dem Hintergrund an. |
 | **Hintergrund & Rahmen** | Wallpaper, Verläufe, Farben, eigene Bilder (mit Unschärfe); Abstand, Innenrand, Ecken, Randlinie, Schatten (Deckkraft, Weichheit, Abstand, Winkel); **Fensterrahmen** (macOS hell/dunkel, Windows, Browser mit Adresszeile); Zuschnitt |
 | **Effekte** | Ein- und Ausblenden (Bild und Ton), Übergänge an Schnitten (Abblende, Blitz, Unschärfe), Farbkorrektur der Aufnahme, Vignette, Filmkorn, **3D-Neigung**, Parallaxe beim Zoomen, Fortschrittsbalken, Logo/Wasserzeichen |
 | **Text** | Eigene Text-Spur: Titel, Untertitel, Hinweis und Bauchbinde, oben/mittig/unten, weich ein- und ausgeblendet |
 | **Format** | Auto, 16:9, 4:3, 1:1, 4:5 und 9:16 für Reels, TikTok und Shorts. Zoom und Webcam passen sich an. |
-| **Webcam** | Layouts *Overlay*, *Geteilt*, *Nur Kamera* und *Nur Bildschirm*, auch abschnittsweise mit weicher Überblendung; Kreis, abgerundet oder eckig; weicht dem Cursor aus, verkleinert sich beim Zoomen, blendet sich bei Stille aus; Farbkorrektur und Schärfen |
+| **Webcam** | Layouts *Overlay*, *Geteilt* (im Rahmen oder randlos in voller Auflösung, Kamera links oder rechts, Breite einstellbar), *Nur Kamera* und *Nur Bildschirm*, auch abschnittsweise mit weicher Überblendung; Kreis, abgerundet oder eckig; weicht dem Cursor aus, verkleinert sich beim Zoomen, blendet sich bei Stille aus; Farbkorrektur und Schärfen |
 | **Tastatur** | Tastenkürzel einblenden (Position, Größe, hell/dunkel), lange Tipp-Phasen automatisch beschleunigen |
 | **Bearbeitung** | Teilen, entfernen, beschleunigen (0,5× bis 8×), **Leerlauf automatisch beschleunigen**; Masken (Weichzeichnen, Verpixeln, Abdecken mit Umgebungsfarbe, Hervorheben) direkt in der Vorschau ziehen, fest, mit Keyframes oder **automatisch mitbewegt** (folgt z. B. einem verschobenen Fenster); Rückgängig; Befehlspalette (<kbd>Strg</kbd>+<kbd>K</kbd>) |
 | **Ton** | Lautstärke je Spur, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife, die bei Sprache automatisch leiser wird (Ducking) |
@@ -93,9 +93,47 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 
 <img src="docs/images/studio-effects-ui.png" alt="Studio mit Effekte-Tab und markierter Bauchbinde auf der Text-Spur">
 
+### Projekte
+
+Jede Videoaufnahme ist ein Projekt und wird laufend gespeichert. Unter **Projekte** (Tray-Menü oder im Studio) stehen alle Projekte mit Vorschaubild: öffnen, umbenennen, löschen (in den Papierkorb) oder im Explorer zeigen.
+
+Mit **Als Datei speichern** (<kbd>Strg</kbd>+<kbd>Umschalt</kbd>+<kbd>S</kbd> im Studio) wird ein Projekt zu einer einzigen `.snipsnip`-Datei. Darin steckt alles: Aufnahme, Ton, Webcam, Mausbahn, Bearbeitung sowie Hintergrundbild, Musik und Logo. So lässt sich ein Projekt sichern, weitergeben und auf einem anderen PC weiterbearbeiten. Ein Doppelklick auf die Datei öffnet sie wieder im Studio.
+
+<img src="docs/images/projects.png" alt="Projekte-Übersicht mit Vorschaubildern, Suche und Knöpfen zum Öffnen, Umbenennen und Speichern als Datei">
+
 Tasten im Studio: <kbd>Leertaste</kbd> abspielen, <kbd>S</kbd> teilen, <kbd>Entf</kbd> entfernen, <kbd>Z</kbd> Zoom, <kbd>M</kbd> Maske, <kbd>T</kbd> Text, <kbd>L</kbd> Layout, <kbd>←</kbd>/<kbd>→</kbd> Bild für Bild, <kbd>Strg</kbd>+<kbd>E</kbd> exportieren, <kbd>Strg</kbd>+<kbd>K</kbd> Befehle. Vorhandene Videos lassen sich ebenfalls importieren und gestalten (ohne Cursor-Daten).
 
 > Für Videos nutzt SnipSnip das freie [FFmpeg](https://ffmpeg.org). Fehlt es, bietet SnipSnip beim ersten Video an, es herunterzuladen: offizieller Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), per SHA-256 geprüft. Alternativ: `winget install Gyan.FFmpeg`.
+### KI-Assistenten (MCP)
+
+SnipSnip ist auch ein [MCP-Server](https://modelcontextprotocol.io). Damit können Claude und andere KI-Assistenten den Bildschirm sehen und SnipSnip bedienen, zum Beispiel: „Mach einen Screenshot vom Browser und verpixle die E-Mail-Adresse“ oder „Nimm 20 Sekunden auf, mach daraus ein 9:16-Video mit Titel und exportiere es“.
+
+| Werkzeug | Wirkung |
+|---|---|
+| `take_screenshot` | Bildschirm, Monitor, Fenster (per Titel oder Programm) oder Bereich; das Bild geht direkt an die KI |
+| `list_screens` · `list_windows` | Monitore und offene Fenster |
+| `censor_image` | Bereiche verpixeln, weichzeichnen oder schwärzen |
+| `copy_to_clipboard` · `upload` | In die Zwischenablage legen, zu Imgur oder catbox.moe hochladen |
+| `start_recording` · `stop_recording` | Bildschirmvideo aufnehmen, optional mit fester Dauer und direktem Export |
+| `list_projects` · `get_project` · `edit_project` | Studio-Projekte ansehen und bearbeiten: Stil, Texte, Zooms, Schnitte, Leerlauf |
+| `render_frame` · `export_project` | Vorschau-Bild zur Kontrolle, Export als MP4 oder GIF |
+| `save_project_file` | Projekt als `.snipsnip`-Datei sichern |
+| `open_in_snipsnip` | Projekt, Projektdatei, Bild oder Video in der laufenden App öffnen |
+
+Einrichten für Claude Code (der genaue Befehl steht auch in den Einstellungen unter *KI-Assistenten*):
+
+```bash
+claude mcp add snipsnip -- "C:\Pfad\zu\SnipSnip.exe" --mcp
+```
+
+Für Claude Desktop in `claude_desktop_config.json`:
+
+```json
+{ "mcpServers": { "snipsnip": { "command": "C:\\Pfad\\zu\\SnipSnip.exe", "args": ["--mcp"] } } }
+```
+
+Aufnahmen über MCP zeigen immer den roten Rahmen und eine Benachrichtigung. Hochgeladen wird nur, wenn die KI ausdrücklich `upload` aufruft.
+
 ### Einstellungen & Benachrichtigungen
 
 <table>
@@ -145,9 +183,10 @@ Ohne Client-ID kannst du alternativ zu **catbox.moe** hochladen.
 | Aufruf | Wirkung |
 |---|---|
 | `SnipSnip.exe` | Startet im Tray. Läuft SnipSnip schon, startet direkt eine neue Aufnahme (praktisch als Taskleisten-Verknüpfung). |
-| `SnipSnip.exe <datei>` | Öffnet ein Bild im Editor oder ein Video im Video-Editor (auch per „Öffnen mit …“) |
+| `SnipSnip.exe <datei>` | Öffnet ein Bild im Editor, ein Video oder eine `.snipsnip`-Projektdatei im Studio (auch per Doppelklick oder „Öffnen mit …“) |
 | `SnipSnip.exe --capture` | Startet sofort eine Aufnahme |
 | `SnipSnip.exe --tray` | Startet still im Tray (wird für den Autostart verwendet) |
+| `SnipSnip.exe --mcp` | Startet den MCP-Server für KI-Assistenten (stdin/stdout) |
 | `SnipSnip.exe --render-docs <ordner>` | Rendert die README-Bilder (siehe unten) |
 
 Einstellungen und Upload-Verlauf liegen in `%APPDATA%\SnipSnip`.
@@ -195,6 +234,7 @@ Die Pipeline baut die drei Varianten (x64, ARM64 und die kleine .NET-abhängige 
 App.xaml(.cs)          Tray, globales Tastenkürzel, Single-Instance, Aktionen nach der Aufnahme
 Capture/               Aufnahme-Session, Overlay pro Monitor, die Leiste oben, Countdown
 Editor/                Bild-Editor, Annotationen (Formen, Text, Zensur)
+Mcp/                   MCP-Server: Screenshots, Zensur, Aufnahme, Studio-Bearbeitung und Export für KI-Assistenten
 Recording/             Videoaufnahme: Bild (GDI → FFmpeg), Ton (WASAPI), Webcam, Maus/Tasten, Steuerleiste
 Studio/                Studio: Projektformat, Renderer (SkiaSharp), Kamera/Auto-Zoom, Zeitleiste, Export
 Video/                 Vorschaubilder für Zeitleiste und Benachrichtigungen

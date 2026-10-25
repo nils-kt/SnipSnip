@@ -13,8 +13,8 @@ namespace SnipSnip
 {
     public partial class App : Application
     {
-        const string MutexName = "SnipSnip.SingleInstance.v1";
-        const string SignalName = "SnipSnip.Signal.v1";
+        internal const string MutexName = "SnipSnip.SingleInstance.v1";
+        internal const string SignalName = "SnipSnip.Signal.v1";
 
         public static AppSettings Settings { get; private set; } = new();
         public static App Instance => (App)Current;
@@ -26,6 +26,7 @@ namespace SnipSnip
         HotkeyManager? hotkey;
         SettingsWindow? settingsWindow;
         HistoryWindow? historyWindow;
+        ProjectsWindow? projectsWindow;
         volatile bool exiting;
 
         public string HotkeyDisplay => HotkeyText.Describe(Settings.HotkeyVk, Settings.HotkeyMods);
@@ -38,6 +39,14 @@ namespace SnipSnip
             if (docsIdx >= 0)
             {
                 RenderDocsAndExit(docsIdx + 1 < e.Args.Length ? e.Args[docsIdx + 1] : Path.Combine("docs", "images"));
+                return;
+            }
+
+            // MCP-Server für KI-Assistenten (stdin/stdout) – eigener Prozess neben der Tray-Instanz
+            if (e.Args.Contains("--mcp"))
+            {
+                Settings = AppSettings.Load();
+                McpServer.Run(this);
                 return;
             }
 
@@ -68,6 +77,22 @@ namespace SnipSnip
                     Shutdown(0);
                 }
                 catch (Exception ex) { File.WriteAllText(outFile, ex.ToString()); Shutdown(1); }
+                return;
+            }
+
+            // Diagnose: --unpack <datei.snipsnip> <aus.txt> – entpackt als Projekt und schreibt den Ordner in aus.txt
+            int unpackIdx = Array.IndexOf(e.Args, "--unpack");
+            if (unpackIdx >= 0 && unpackIdx + 2 < e.Args.Length)
+            {
+                string outFile = e.Args[unpackIdx + 2];
+                try
+                {
+                    Settings = AppSettings.Load();
+                    string dir = System.Threading.Tasks.Task.Run(() => ProjectArchive.OpenAsync(e.Args[unpackIdx + 1])).GetAwaiter().GetResult();
+                    File.WriteAllText(outFile, dir);
+                    Shutdown(0);
+                }
+                catch (Exception ex) { File.WriteAllText(outFile, "FEHLER " + ex); Shutdown(1); }
                 return;
             }
 
@@ -131,6 +156,7 @@ namespace SnipSnip
             DesktopIcons.Restore();
             Dispatcher.InvokeAsync(CheckCrashRecovery, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
             VideoEncoder.WarmUp();
+            System.Threading.Tasks.Task.Run(RegisterFileType);
 
             hotkey = new HotkeyManager();
             hotkey.Pressed += () => StartCapture();
@@ -147,7 +173,7 @@ namespace SnipSnip
                     null, ok ? null : ShowSettings, 6);
         }
 
-        static string PendingOpenFile => Path.Combine(AppSettings.DataDir, "pending-open.txt");
+        internal static string PendingOpenFile => Path.Combine(AppSettings.DataDir, "pending-open.txt");
 
         /// <summary>Signal einer zweiten Instanz: Datei öffnen (falls übergeben), sonst neue Aufnahme.</summary>
         void OnSignal()
@@ -172,6 +198,8 @@ namespace SnipSnip
             // Deterministisch und ohne persönliche Daten (Benutzername im Pfad); Benutzer-Einstellungen bleiben unberührt
             Settings = new AppSettings { SaveFolder = @"C:\Users\Du\Pictures\SnipSnip", VideoFolder = @"C:\Users\Du\Videos\SnipSnip" };
             FFmpeg.DocsOverride = @"C:\Program Files\ffmpeg\bin\ffmpeg.exe";
+            SettingsWindow.DocsExePath = @"C:\Program Files\SnipSnip\SnipSnip.exe";
+            AudioDevices.DocsOverride = new() { ("docs-usb", "Mikrofon (USB Audio)"), ("docs-headset", "Headset (Bluetooth)") };
             // Watchdog: in der CI darf ein hängender Dialog o. Ä. den Build nicht blockieren
             new Thread(() => { Thread.Sleep(TimeSpan.FromMinutes(2)); Environment.Exit(2); }) { IsBackground = true }.Start();
             try
@@ -262,7 +290,8 @@ namespace SnipSnip
             captureItem.Font = new System.Drawing.Font(captureItem.Font, System.Drawing.FontStyle.Bold);
             menu.Items.Add(captureItem);
             menu.Items.Add("Neue Videoaufnahme", null, (_, _) => StartCapture(video: true));
-            menu.Items.Add("Bild oder Video öffnen …", null, (_, _) => OpenFile());
+            menu.Items.Add("Projekte …", null, (_, _) => ShowProjects());
+            menu.Items.Add("Öffnen …", null, (_, _) => OpenFile());
             menu.Items.Add("Upload-Verlauf", null, (_, _) => ShowHistory());
             menu.Items.Add(new WinForms.ToolStripSeparator());
             menu.Items.Add("Einstellungen", null, (_, _) => ShowSettings());
@@ -418,8 +447,8 @@ namespace SnipSnip
                 Directory.CreateDirectory(Settings.VideoFolder);
                 bool keep = Settings.AutoSave || action == AfterCapture.Save;
                 file = keep
-                    ? Path.Combine(Settings.VideoFolder, project.Name + ".mp4")
-                    : Path.Combine(Path.GetTempPath(), "SnipSnip", $"export_{Guid.NewGuid():N}", project.Name + ".mp4");
+                    ? Path.Combine(Settings.VideoFolder, project.FileName + ".mp4")
+                    : Path.Combine(Path.GetTempPath(), "SnipSnip", $"export_{Guid.NewGuid():N}", project.FileName + ".mp4");
                 Directory.CreateDirectory(Path.GetDirectoryName(file)!);
                 int fps = Math.Min(Settings.ExportFps, Math.Max(30, project.Meta.Fps));
                 var opts = new StudioExportOptions { ShortSide = int.TryParse(Settings.ExportResolution, out int ss) ? ss : 1080, Fps = fps, Crf = Settings.VideoCrf };
@@ -549,8 +578,8 @@ namespace SnipSnip
             var dlg = new OpenFileDialog
             {
                 Title = "Bild oder Video öffnen",
-                Filter = "Bilder, Videos und Projekte|meta.json;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v" +
-                         "|Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|Videos|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|Alle Dateien|*.*"
+                Filter = "Bilder, Videos und Projekte|*.snipsnip;meta.json;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v" +
+                         "|SnipSnip-Projekte|*.snipsnip|Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|Videos|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|Alle Dateien|*.*"
             };
             if (dlg.ShowDialog(owner) != true) return;
             OpenPath(dlg.FileName);
@@ -561,7 +590,8 @@ namespace SnipSnip
         {
             try
             {
-                if (Directory.Exists(path) && File.Exists(Path.Combine(path, "meta.json"))) OpenStudio(StudioProject.Load(path));
+                if (ProjectArchive.IsArchive(path) && File.Exists(path)) _ = OpenProjectFileAsync(path);
+                else if (Directory.Exists(path) && File.Exists(Path.Combine(path, "meta.json"))) OpenStudio(StudioProject.Load(path));
                 else if (Path.GetFileName(path).Equals("meta.json", StringComparison.OrdinalIgnoreCase)) OpenStudio(StudioProject.Load(Path.GetDirectoryName(path)!));
                 else if (Path.GetFileName(path).Equals("project.json", StringComparison.OrdinalIgnoreCase)) OpenStudio(StudioProject.Load(Path.GetDirectoryName(path)!));
                 else if (IsVideoFile(path)) _ = ImportVideoAsync(path);
@@ -572,6 +602,69 @@ namespace SnipSnip
                 MessageBox.Show("Die Datei konnte nicht geöffnet werden:\n" + ex.Message, "SnipSnip");
             }
         }
+
+        /// <summary>Eine .snipsnip-Datei als neues Projekt entpacken und im Studio öffnen.</summary>
+        async Task OpenProjectFileAsync(string file)
+        {
+            var toast = Toast.Notify("Projekt wird geöffnet …", Path.GetFileName(file), null, null, 0);
+            toast.SetProgress(true);
+            int last = -1;
+            try
+            {
+                string dir = await ProjectArchive.OpenAsync(file, new Progress<double>(v =>
+                {
+                    int pct = (int)(v * 100);
+                    if (pct == last) return;
+                    last = pct;
+                    toast.Update("Projekt wird geöffnet …", $"{Path.GetFileName(file)}  ·  {pct} %", null, 0);
+                    toast.SetProgress(true);
+                }));
+                toast.Close();
+                OpenStudio(StudioProject.Load(dir));
+                if (projectsWindow != null) await projectsWindow.ReloadAsync();
+            }
+            catch (Exception ex)
+            {
+                toast.Update("Projekt konnte nicht geöffnet werden", ex.Message, null, 10);
+            }
+        }
+
+        public void ShowProjects()
+        {
+            if (projectsWindow == null)
+            {
+                projectsWindow = new ProjectsWindow();
+                projectsWindow.Closed += (_, _) => projectsWindow = null;
+                projectsWindow.Show();
+            }
+            if (projectsWindow.WindowState == WindowState.Minimized) projectsWindow.WindowState = WindowState.Normal;
+            projectsWindow.Activate();
+        }
+
+        /// <summary>.snipsnip-Dateien für den aktuellen Benutzer mit SnipSnip verknüpfen (ohne Administratorrechte).</summary>
+        static void RegisterFileType()
+        {
+            try
+            {
+                string? exe = Environment.ProcessPath;
+                if (exe == null || exe.StartsWith(Path.GetTempPath(), StringComparison.OrdinalIgnoreCase)) return;
+                string command = $"\"{exe}\" \"%1\"";
+                using var cmdKey = Registry.CurrentUser.CreateSubKey(@"Software\Classes\SnipSnip.Project\shell\open\command");
+                if (cmdKey.GetValue("") as string == command) return;
+                cmdKey.SetValue("", command);
+                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\SnipSnip.Project"))
+                    k.SetValue("", "SnipSnip-Projekt");
+                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\SnipSnip.Project\DefaultIcon"))
+                    k.SetValue("", $"\"{exe}\",0");
+                using (var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + ProjectArchive.Extension))
+                    k.SetValue("", "SnipSnip.Project");
+                SHChangeNotify(0x08000000 /* SHCNE_ASSOCCHANGED */, 0, IntPtr.Zero, IntPtr.Zero);
+            }
+            catch { /* nicht kritisch */ }
+        }
+
+        [System.Runtime.InteropServices.DllImport("shell32.dll")]
+        static extern void SHChangeNotify(int eventId, uint flags, IntPtr item1, IntPtr item2);
 
         /// <summary>Vorhandenes Video als Studio-Projekt importieren.</summary>
         async Task ImportVideoAsync(string path)

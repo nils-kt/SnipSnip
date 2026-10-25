@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
@@ -244,7 +245,7 @@ namespace SnipSnip
                     await FFmpeg.RunAsync(args);
                 }
                 var reader = new WaveFileReader(wav);
-                audio = new SeekableAudio(reader);
+                audio = new SeekableAudio(reader, p);
                 var wo = new NAudio.Wave.WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 120);
                 wo.Init(audio.ToWaveProvider());
                 waveOut = wo;
@@ -271,13 +272,16 @@ namespace SnipSnip
         readonly WaveFileReader reader;
         readonly ISampleProvider samples;
         readonly object gate = new();
+        readonly StudioProject? project;
+        List<(double T, float[] Samples)>? clicks;
         public bool Muted { get; set; }
         public bool SpeedMute { get; set; }
 
-        public SeekableAudio(WaveFileReader r)
+        public SeekableAudio(WaveFileReader r, StudioProject? project = null)
         {
             reader = r;
             samples = r.ToSampleProvider();
+            this.project = project;
         }
 
         public WaveFormat WaveFormat => samples.WaveFormat;
@@ -295,10 +299,43 @@ namespace SnipSnip
         public int Read(float[] buffer, int offset, int count)
         {
             int n;
-            lock (gate) n = samples.Read(buffer, offset, count);
+            double t0;
+            lock (gate)
+            {
+                t0 = reader.CurrentTime.TotalSeconds;
+                n = samples.Read(buffer, offset, count);
+            }
+            MixClicks(buffer, offset, n, t0);
             if (Muted || SpeedMute) Array.Clear(buffer, offset, n);
             if (n < count) { Array.Clear(buffer, offset + n, count - n); n = count; } // Stille statt Ende
             return n;
+        }
+
+        /// <summary>Klick-Geräusche wie im Export dazumischen (Zeit = Aufnahmezeit der Vorschau-Tonspur).</summary>
+        void MixClicks(float[] buffer, int offset, int n, double t0)
+        {
+            var st = project?.Edits.Style;
+            if (st == null || !st.ClickSound || n <= 0) return;
+            clicks ??= ClickSound.Events(project!.Input);
+            int ch = WaveFormat.Channels, rate = WaveFormat.SampleRate;
+            int frames = n / ch;
+            double t1 = t0 + frames / (double)rate;
+            float vol = (float)Math.Clamp(st.ClickVolume, 0, 1.5);
+            double step = ClickSound.Rate / (double)rate;
+            foreach (var (t, snap) in clicks)
+            {
+                double len = snap.Length / (double)ClickSound.Rate;
+                if (t + len < t0 || t >= t1) continue;
+                for (int fIdx = 0; fIdx < frames; fIdx++)
+                {
+                    double k = ((t0 + fIdx / (double)rate) - t) * ClickSound.Rate;
+                    if (k < 0) continue;
+                    int ki = (int)k;
+                    if (ki >= snap.Length) break;
+                    float v = snap[ki] * vol;
+                    for (int c = 0; c < ch; c++) buffer[offset + fIdx * ch + c] += v;
+                }
+            }
         }
 
         public void Dispose() => reader.Dispose();

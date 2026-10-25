@@ -44,6 +44,8 @@ namespace SnipSnip
         public bool HardwareEncoding { get; set; } = true;
         public bool RecordSystemAudio { get; set; } = true;
         public bool RecordMicrophone { get; set; }
+        /// <summary>Geräte-ID des Mikrofons ("" = Windows-Standard).</summary>
+        public string MicrophoneDevice { get; set; } = "";
         public bool RecordWebcam { get; set; }
         public string WebcamDevice { get; set; } = "";
         public bool RecordingCountdown { get; set; } = true;

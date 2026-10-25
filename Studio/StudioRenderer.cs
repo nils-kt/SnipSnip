@@ -135,7 +135,9 @@ namespace SnipSnip
             "9:16" => 9.0 / 16,
             "4:3" => 4.0 / 3,
             "4:5" => 0.8,
-            _ => ContentAspect
+            _ => St.Layout == CamLayout.Split && St.SplitBorderless && p.HasWebcam
+                ? ContentAspect / (1 - Math.Clamp(St.SplitCamWidth / 100, 0.15, 0.6))
+                : ContentAspect
         };
 
         /// <summary>Ausgabegröße: shortSide = kürzere Kante (z. B. 1080).</summary>
@@ -152,13 +154,25 @@ namespace SnipSnip
         {
             public readonly SKRect Content, Cam;
             public readonly float ContentAlpha, CamAlpha, CamRadius;
-            public Layout(SKRect content, SKRect cam, float ca, float wa, float r) { Content = content; Cam = cam; ContentAlpha = ca; CamAlpha = wa; CamRadius = r; }
+            /// <summary>Zoom nur innerhalb der eigenen Fläche (geteiltes Layout) statt über die ganze Ausgabe.</summary>
+            public readonly bool Boxed;
+            /// <summary>Randlos: kein Hintergrund, kein Schatten, keine Ränder – Aufnahme und Kamera füllen das Bild.</summary>
+            public readonly bool Bleed;
+            /// <summary>Eckenradius der Aufnahme.</summary>
+            public readonly float ContentRadius;
+            public Layout(SKRect content, SKRect cam, float ca, float wa, float r, float contentRadius, bool boxed = false, bool bleed = false)
+            {
+                Content = content; Cam = cam; ContentAlpha = ca; CamAlpha = wa; CamRadius = r; Boxed = boxed; Bleed = bleed; ContentRadius = contentRadius;
+            }
 
             public static Layout Lerp(Layout a, Layout b, float f) => new(
                 LerpRect(a.Content, b.Content, f), LerpRect(a.Cam, b.Cam, f),
                 a.ContentAlpha + (b.ContentAlpha - a.ContentAlpha) * f,
                 a.CamAlpha + (b.CamAlpha - a.CamAlpha) * f,
-                a.CamRadius + (b.CamRadius - a.CamRadius) * f);
+                a.CamRadius + (b.CamRadius - a.CamRadius) * f,
+                a.ContentRadius + (b.ContentRadius - a.ContentRadius) * f,
+                f < 0.5f ? a.Boxed : b.Boxed,
+                f < 0.5f ? a.Bleed : b.Bleed);
         }
 
         static SKRect LerpRect(SKRect a, SKRect b, float f) => new(
@@ -185,16 +199,46 @@ namespace SnipSnip
             {
                 case CamLayout.Split:
                 {
-                    float gap = Math.Max(pad * 0.5f, m * 0.02f);
                     bool wide = W >= H;
-                    var screenArea = wide ? new SKRect(inner.Left, inner.Top, inner.Left + inner.Width * 0.68f, inner.Bottom)
-                                          : new SKRect(inner.Left, inner.Top, inner.Right, inner.Top + inner.Height * 0.62f);
-                    var camArea = wide ? new SKRect(screenArea.Right + gap, inner.Top, inner.Right, inner.Bottom)
-                                       : new SKRect(inner.Left, screenArea.Bottom + gap, inner.Right, inner.Bottom);
-                    return new Layout(Fit(screenArea, ContentAspect), camArea, 1, 1, radius);
+                    float share = (float)Math.Clamp(St.SplitCamWidth / 100, 0.15, 0.6);
+                    bool first = St.SplitCamFirst;
+                    if (St.SplitBorderless)
+                    {
+                        // randlos: Kamera-Streifen über die volle Höhe (bzw. Breite), die Aufnahme füllt den Rest
+                        var full = SKRect.Create(0, 0, W, H);
+                        SKRect cam, rest;
+                        if (wide)
+                        {
+                            float cw = W * share;
+                            cam = first ? new SKRect(0, 0, cw, H) : new SKRect(W - cw, 0, W, H);
+                            rest = first ? new SKRect(cw, 0, W, H) : new SKRect(0, 0, W - cw, H);
+                        }
+                        else
+                        {
+                            float ch = H * share;
+                            cam = first ? new SKRect(0, 0, W, ch) : new SKRect(0, H - ch, W, H);
+                            rest = first ? new SKRect(0, ch, W, H) : new SKRect(0, 0, W, H - ch);
+                        }
+                        return new Layout(Fit(rest, ContentAspect), cam, 1, 1, 0, 0, boxed: true, bleed: true);
+                    }
+                    float gap = Math.Max(pad * 0.5f, m * 0.02f);
+                    SKRect screenArea, camArea;
+                    if (wide)
+                    {
+                        float cw = inner.Width * share;
+                        camArea = first ? new SKRect(inner.Left, inner.Top, inner.Left + cw, inner.Bottom) : new SKRect(inner.Right - cw, inner.Top, inner.Right, inner.Bottom);
+                        screenArea = first ? new SKRect(camArea.Right + gap, inner.Top, inner.Right, inner.Bottom) : new SKRect(inner.Left, inner.Top, camArea.Left - gap, inner.Bottom);
+                    }
+                    else
+                    {
+                        float ch = inner.Height * share;
+                        camArea = first ? new SKRect(inner.Left, inner.Top, inner.Right, inner.Top + ch) : new SKRect(inner.Left, inner.Bottom - ch, inner.Right, inner.Bottom);
+                        screenArea = first ? new SKRect(inner.Left, camArea.Bottom + gap, inner.Right, inner.Bottom) : new SKRect(inner.Left, inner.Top, inner.Right, camArea.Top - gap);
+                    }
+                    return new Layout(Fit(screenArea, ContentAspect), camArea, 1, 1, radius, radius, boxed: true);
                 }
                 case CamLayout.CameraOnly:
-                    return new Layout(Fit(inner, ContentAspect), inner, 0, 1, radius);
+                    return new Layout(Fit(inner, ContentAspect), inner, 0, 1, radius, radius);
                 case CamLayout.Overlay:
                 {
                     var content = Fit(inner, ContentAspect);
@@ -206,10 +250,10 @@ namespace SnipSnip
                     float x = margin + (W - 2 * margin - size) * side;
                     float y = bottom ? H - margin - size : margin;
                     float camR = St.CamShape switch { CamShape.Circle => size / 2, CamShape.Rounded => size * 0.22f, _ => size * 0.04f };
-                    return new Layout(content, SKRect.Create(x, y, size, size), 1, Sample(camAlpha, t, 1), camR);
+                    return new Layout(content, SKRect.Create(x, y, size, size), 1, Sample(camAlpha, t, 1), camR, radius);
                 }
                 default:
-                    return new Layout(Fit(inner, ContentAspect), SKRect.Empty, 1, 0, radius);
+                    return new Layout(Fit(inner, ContentAspect), SKRect.Empty, 1, 0, radius, radius);
             }
         }
 
@@ -266,48 +310,53 @@ namespace SnipSnip
         /// Aufnahme; wird sie breiter, wandert sie stufenlos zur Aufnahme-Mitte (früher ein harter Regelwechsel → Ruck).
         /// Zum Schluss immer innerhalb der Ausgabe bleiben (bei Zoom 1 exakt mittig).
         /// </summary>
-        static float ClampAxis(float f, float half, float cMin, float cMax, float canvasMax)
+        static float ClampAxis(float f, float half, float cMin, float cMax, float vMin, float vMax)
         {
             float center = (cMin + cMax) / 2;
             float lo = Math.Min(cMin + half, center), hi = Math.Max(cMax - half, center);
             float v = Math.Clamp(f, lo, hi);
-            return Math.Clamp(v, half, Math.Max(half, canvasMax - half));
+            return Math.Clamp(v, vMin + half, Math.Max(vMin + half, vMax - half));
         }
+
+        /// <summary>Fläche, in der gezoomt wird: die ganze Ausgabe – oder beim geteilten Layout nur die Bildschirm-Fläche.</summary>
+        static SKRect Viewport(int W, int H, Layout layout) => layout.Boxed ? layout.Content : SKRect.Create(0, 0, W, H);
 
         /// <summary>Kamera-Transformation (Szene → Ausgabe) zur Quellzeit t.</summary>
-        SKMatrix CameraMatrix(int W, int H, SKRect inner, double t)
+        SKMatrix CameraMatrix(SKRect view, SKRect inner, double t)
         {
-            var (z, cx, cy) = CameraView(W, H, inner, t);
-            return z <= 1.0005f ? SKMatrix.Identity : ViewMatrix(W, H, z, cx, cy);
+            var (z, cx, cy) = CameraView(view, inner, t);
+            return z <= 1.0005f ? SKMatrix.Identity : ViewMatrix(view, z, cx, cy);
         }
 
-        static SKMatrix ViewMatrix(int W, int H, float z, float cx, float cy) =>
-            SKMatrix.CreateTranslation(-cx, -cy).PostConcat(SKMatrix.CreateScale(z, z)).PostConcat(SKMatrix.CreateTranslation(W / 2f, H / 2f));
+        static SKMatrix ViewMatrix(SKRect view, float z, float cx, float cy) =>
+            SKMatrix.CreateTranslation(-cx, -cy).PostConcat(SKMatrix.CreateScale(z, z)).PostConcat(SKMatrix.CreateTranslation(view.MidX, view.MidY));
 
-        /// <summary>Hintergrund: folgt der Kamera abgeschwächt (Parallaxe) – wirkt räumlicher.</summary>
-        SKMatrix BackgroundMatrix(int W, int H, SKRect inner, double t)
+        /// <summary>Hintergrund: folgt der Kamera abgeschwächt (Parallaxe) – wirkt räumlicher. Beim geteilten Layout steht er still.</summary>
+        SKMatrix BackgroundMatrix(int W, int H, SKRect inner, double t, Layout layout)
         {
-            var (z, cx, cy) = CameraView(W, H, inner, t);
+            if (layout.Boxed) return SKMatrix.Identity;
+            var full = SKRect.Create(0, 0, W, H);
+            var (z, cx, cy) = CameraView(full, inner, t);
             if (z <= 1.0005f) return SKMatrix.Identity;
             float k = 1 - (float)Math.Clamp(St.Parallax, 0, 1);
             float zb = 1 + (z - 1) * k;
             float hw = W / (2 * zb), hh = H / (2 * zb);
             float bx = Math.Clamp(W / 2f + (cx - W / 2f) * k, hw, W - hw);
             float by = Math.Clamp(H / 2f + (cy - H / 2f) * k, hh, H - hh);
-            return ViewMatrix(W, H, zb, bx, by);
+            return ViewMatrix(full, zb, bx, by);
         }
 
         /// <summary>Zoomstufe und Mittelpunkt der Ansicht (Szenen-Koordinaten) zur Quellzeit t.</summary>
-        (float Z, float Cx, float Cy) CameraView(int W, int H, SKRect inner, double t)
+        (float Z, float Cx, float Cy) CameraView(SKRect view, SKRect inner, double t)
         {
             var (z, fx, fy) = Camera.At(t);
-            if (z <= 1.0005) return (1, W / 2f, H / 2f);
+            if (z <= 1.0005) return (1, view.MidX, view.MidY);
             var f = ToScene(inner, fx, fy);
-            float hw = (float)(W / (2 * z)), hh = (float)(H / (2 * z));
+            float hw = (float)(view.Width / (2 * z)), hh = (float)(view.Height / (2 * z));
             // etwas innerhalb der Aufnahme bleiben, damit gezoomt keine abgerundeten Ecken/Hintergrund sichtbar werden
-            float rad = (float)(St.Radius / 1000 * Math.Min(W, H) * 2) * 0.6f;
-            float cx = ClampAxis(f.X, hw, inner.Left + rad, inner.Right - rad, W);
-            float cy = ClampAxis(f.Y, hh, inner.Top + rad, inner.Bottom - rad, H);
+            float rad = (float)(St.Radius / 1000 * Math.Min(view.Width, view.Height) * 2) * 0.6f;
+            float cx = ClampAxis(f.X, hw, inner.Left + rad, inner.Right - rad, view.Left, view.Right);
+            float cy = ClampAxis(f.Y, hh, inner.Top + rad, inner.Bottom - rad, view.Top, view.Bottom);
             return ((float)z, cx, cy);
         }
 
@@ -318,7 +367,7 @@ namespace SnipSnip
             var (z, _, _) = Camera.At(t);
             var layout = CurrentLayout(W, H, t, z, hasCam);
             inner = InnerOf(layout.Content);
-            return CameraMatrix(W, H, inner, t).PreConcat(TiltMatrix(layout.Content));
+            return CameraMatrix(Viewport(W, H, layout), inner, t).PreConcat(TiltMatrix(layout.Content));
         }
 
         /// <summary>Relative Aufnahme-Koordinate (0..1) → Pixel im Ausgabebild zur Quellzeit t.</summary>
@@ -348,7 +397,7 @@ namespace SnipSnip
             {
                 var (z, _, _) = Camera.At(t);
                 var l = CurrentLayout(W, H, t, z, p.HasWebcam);
-                var m = CameraMatrix(W, H, InnerOf(l.Content), t);
+                var m = CameraMatrix(Viewport(W, H, l), InnerOf(l.Content), t);
                 // Mittelpunkt der Ansicht in Szenen-Koordinaten
                 m.TryInvert(out var inv);
                 var ctr = inv.MapPoint(new SKPoint(W / 2f, H / 2f));
@@ -499,31 +548,30 @@ namespace SnipSnip
         void DrawScene(SKCanvas c, int W, int H, Layout layout, double t, double outT, SKImage? screen, bool fast = false)
         {
             var inner = InnerOf(layout.Content);
-            c.Save();
-            c.Concat(BackgroundMatrix(W, H, inner, t));
-            c.DrawImage(Background(W, H), 0, 0);
-            c.Restore();
+            var content = layout.Content;
+            float radius = layout.ContentRadius;
+            byte alpha = (byte)(255 * layout.ContentAlpha);
+            bool show = layout.ContentAlpha > 0.01;
 
-            c.Save();
-            c.Concat(CameraMatrix(W, H, inner, t));
-            c.Concat(TiltMatrix(layout.Content));
-
-            if (layout.ContentAlpha > 0.01)
+            if (layout.Bleed) c.Clear(SKColors.Black); // randlos: kein Hintergrund
+            else
             {
-                var content = layout.Content;
-                float radius = (float)(St.Radius / 1000 * Math.Min(W, H) * 2);
-                byte alpha = (byte)(255 * layout.ContentAlpha);
+                c.Save();
+                c.Concat(BackgroundMatrix(W, H, inner, t, layout));
+                c.DrawImage(Background(W, H), 0, 0);
+                c.Restore();
+            }
 
-                // Schatten
-                if (St.ShadowOpacity > 0.01)
-                {
-                    var sh = Shadow(content, radius);
-                    double a = St.ShadowAngle * Math.PI / 180;
-                    float dx = (float)(Math.Cos(a) * St.ShadowDistance), dy = (float)(Math.Sin(a) * St.ShadowDistance);
-                    float pad = (sh.Width - content.Width) / 2;
-                    using var spa = new SKPaint { Color = SKColors.White.WithAlpha(alpha) };
-                    c.DrawImage(sh, content.Left - pad + dx, content.Top - pad + dy, Lin, spa);
-                }
+            // Geteiltes Layout: Rahmen, Schatten und Rand bleiben stehen, gezoomt wird nur darin
+            if (show && layout.Boxed && !layout.Bleed) DrawContentShadow(c, content, radius, alpha);
+            c.Save();
+            if (layout.Boxed) c.ClipRoundRect(new SKRoundRect(content, radius, radius), SKClipOperation.Intersect, true);
+            c.Concat(CameraMatrix(Viewport(W, H, layout), inner, t));
+            c.Concat(TiltMatrix(content));
+
+            if (show)
+            {
+                if (!layout.Boxed) DrawContentShadow(c, content, radius, alpha);
 
                 c.Save();
                 var rr = new SKRoundRect(content, radius, radius);
@@ -555,11 +603,22 @@ namespace SnipSnip
                 }
                 DrawCursor(c, inner, t, outT, layout.ContentAlpha);
                 c.Restore();
-                DrawBorder(c, content, radius, layout.ContentAlpha);
+                if (!layout.Boxed) DrawBorder(c, content, radius, layout.ContentAlpha);
             }
             c.Restore();
+            if (show && layout.Boxed && !layout.Bleed) DrawBorder(c, content, radius, layout.ContentAlpha);
         }
 
+        void DrawContentShadow(SKCanvas c, SKRect content, float radius, byte alpha)
+        {
+            if (St.ShadowOpacity <= 0.01) return;
+            var sh = Shadow(content, radius);
+            double a = St.ShadowAngle * Math.PI / 180;
+            float dx = (float)(Math.Cos(a) * St.ShadowDistance), dy = (float)(Math.Sin(a) * St.ShadowDistance);
+            float pad = (sh.Width - content.Width) / 2;
+            using var spa = new SKPaint { Color = SKColors.White.WithAlpha(alpha) };
+            c.DrawImage(sh, content.Left - pad + dx, content.Top - pad + dy, Lin, spa);
+        }
         // ================================================================== Masken & Hervorheben
 
         SKRect MaskRect(SKRect inner, MaskSegment m, double t)
@@ -1062,8 +1121,11 @@ namespace SnipSnip
             float radius = layout.CamRadius;
             if (r.Width < 4 || r.Height < 4) return;
 
-            using (var sh = new SKPaint { Color = SKColors.Black.WithAlpha((byte)(120 * alpha)), MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, r.Width * 0.05f), IsAntialias = true })
+            if (!layout.Bleed)
+            {
+                using var sh = new SKPaint { Color = SKColors.Black.WithAlpha((byte)(120 * alpha)), MaskFilter = SKMaskFilter.CreateBlur(SKBlurStyle.Normal, r.Width * 0.05f), IsAntialias = true };
                 c.DrawRoundRect(SKRect.Inflate(r, -2, -2).Standardized, radius, radius, sh);
+            }
 
             c.Save();
             c.ClipRoundRect(new SKRoundRect(r, radius, radius), SKClipOperation.Intersect, true);
@@ -1085,6 +1147,7 @@ namespace SnipSnip
             c.DrawImage(cam, src, r, Hq, pa);
             c.Restore();
 
+            if (layout.Bleed) return;
             using var border = new SKPaint { Style = SKPaintStyle.Stroke, StrokeWidth = Math.Max(1.5f, r.Width * 0.008f), Color = SKColors.White.WithAlpha((byte)(60 * alpha)), IsAntialias = true };
             c.DrawRoundRect(r, radius, radius, border);
         }

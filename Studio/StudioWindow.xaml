@@ -28,9 +28,18 @@
                         <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconVideo}" Content="Neu"
                                 ToolTip="Neue Videoaufnahme  (Strg+N)" Click="New_Click"/>
                         <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconFolder}"
-                                ToolTip="Projekt oder Video öffnen  (Strg+O)" Click="Open_Click"/>
+                                ToolTip="Projekt, Projektdatei oder Video öffnen  (Strg+O)" Click="Open_Click"/>
+                        <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconLayers}" Content="Projekte"
+                                ToolTip="Alle Projekte anzeigen" Click="Projects_Click"/>
+                        <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconSave}"
+                                ToolTip="Projekt als Datei speichern (.snipsnip)  (Strg+Umschalt+S)" Click="SaveProjectFile_Click"/>
                         <Border Style="{StaticResource VSep}"/>
-                        <TextBlock x:Name="ProjectName" VerticalAlignment="Center" FontWeight="SemiBold" Margin="4,0,0,0"/>
+                        <Grid VerticalAlignment="Center" Margin="4,0,0,0">
+                            <TextBlock x:Name="ProjectName" VerticalAlignment="Center" FontWeight="SemiBold" Cursor="Hand"
+                                       ToolTip="Klicken zum Umbenennen" MouseLeftButtonDown="ProjectName_Click"/>
+                            <TextBox x:Name="ProjectNameBox" Style="{StaticResource DarkText}" MinWidth="220" Visibility="Collapsed"
+                                     KeyDown="ProjectNameBox_KeyDown" LostKeyboardFocus="ProjectNameBox_LostFocus"/>
+                        </Grid>
                         <TextBlock x:Name="SaveState" Style="{StaticResource Dim}" Margin="10,0,0,0"/>
                     </StackPanel>
                     <StackPanel x:Name="AspectBar" Orientation="Horizontal" HorizontalAlignment="Center"/>

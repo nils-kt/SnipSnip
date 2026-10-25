@@ -269,7 +269,7 @@ namespace SnipSnip
             if (clicks != null)
             {
                 args.AddRange(new[] { "-i", clicks });
-                f.Append($"[{idx}:a]aresample=48000,volume=0.8[clk];");
+                f.Append($"[{idx}:a]aresample=48000,aformat=channel_layouts=stereo[clk];");
                 mixLabels.Add("[clk]");
                 idx++;
             }
@@ -296,41 +296,22 @@ namespace SnipSnip
             return outPath;
         }
 
-        /// <summary>Erzeugt eine Spur mit dezenten Klick-Geräuschen an den Klick-Zeitpunkten des fertigen Videos.</summary>
+        /// <summary>Spur mit Mausklick-Geräuschen (Drücken und Loslassen) an den Zeitpunkten des fertigen Videos.</summary>
         static string WriteClickTrack(StudioProject p, string tmp, double dur)
         {
-            const int Rate = 48000;
+            const int Rate = ClickSound.Rate;
             var samples = new float[(int)(dur * Rate) + Rate];
-            var click = SynthClick(Rate);
-            foreach (var t in p.Input.Clicks)
+            float vol = (float)Math.Clamp(p.Edits.Style.ClickVolume, 0, 1.5);
+            foreach (var (t, snap) in ClickSound.Events(p.Input))
             {
                 var o = p.OutputAt(t);
                 if (o == null) continue;
                 int start = (int)(o.Value * Rate);
-                for (int i = 0; i < click.Length && start + i < samples.Length; i++) samples[start + i] += click[i];
+                for (int i = 0; i < snap.Length && start + i < samples.Length; i++) samples[start + i] += snap[i] * vol;
             }
             string path = Path.Combine(tmp, "clicks.wav");
             using var w = new NAudio.Wave.WaveFileWriter(path, NAudio.Wave.WaveFormat.CreateIeeeFloatWaveFormat(Rate, 1));
             w.WriteSamples(samples, 0, samples.Length);
             return path;
-        }
-
-        static float[] SynthClick(int rate)
-        {
-            int n = rate * 35 / 1000;
-            var s = new float[n];
-            var rng = new Random(7);
-            double lp = 0;
-            for (int i = 0; i < n; i++)
-            {
-                double t = i / (double)rate;
-                double env = Math.Exp(-t * 180);
-                double noise = rng.NextDouble() * 2 - 1;
-                lp += (noise - lp) * 0.35; // weicher Tiefpass
-                double tone = Math.Sin(2 * Math.PI * 1900 * t) * Math.Exp(-t * 260);
-                s[i] = (float)((lp * 0.55 + tone * 0.45) * env * 0.5);
-            }
-            return s;
-        }
-    }
+        }    }
 }

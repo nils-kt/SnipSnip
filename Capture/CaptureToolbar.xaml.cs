@@ -41,6 +41,8 @@ namespace SnipSnip
             DelayBtn.Visibility = DelaySep.Visibility = video ? Visibility.Collapsed : Visibility.Visible;
             SysAudioToggle.IsChecked = App.Settings.RecordSystemAudio;
             MicToggle.IsChecked = App.Settings.RecordMicrophone;
+            MicPickBtn.Visibility = AudioPanel.Visibility;
+            UpdateMicTooltip();
             CamToggle.IsChecked = App.Settings.RecordWebcam;
             CamToggle.ToolTip = string.IsNullOrEmpty(App.Settings.WebcamDevice)
                 ? "Webcam aufnehmen (Kamera in den Einstellungen wählen)"
@@ -100,6 +102,33 @@ namespace SnipSnip
             if (sender == CamToggle && App.Settings.RecordWebcam && string.IsNullOrEmpty(App.Settings.WebcamDevice))
                 _ = PickFirstWebcamAsync();
         }
+
+        /// <summary>Menü mit allen Mikrofonen; die Wahl schaltet die Mikrofon-Aufnahme gleich mit ein.</summary>
+        void MicPick_Click(object sender, RoutedEventArgs e)
+        {
+            var menu = new ContextMenu { PlacementTarget = MicPickBtn, Placement = PlacementMode.Bottom };
+            void Add(string label, string id)
+            {
+                var item = new MenuItem { Header = label, IsCheckable = true, IsChecked = App.Settings.MicrophoneDevice == id };
+                item.Click += (_, _) =>
+                {
+                    App.Settings.MicrophoneDevice = id;
+                    App.Settings.RecordMicrophone = true;
+                    MicToggle.IsChecked = true;
+                    App.Settings.Save();
+                    UpdateMicTooltip();
+                };
+                menu.Items.Add(item);
+            }
+            var list = AudioDevices.Microphones();
+            Add("Windows-Standard" + (AudioDevices.DefaultMicrophoneName() is string n ? $" ({n})" : ""), "");
+            if (list.Count > 0) menu.Items.Add(new Separator());
+            foreach (var (id, name) in list) Add(name, id);
+            if (list.Count == 0) menu.Items.Add(new MenuItem { Header = "Kein Mikrofon gefunden", IsEnabled = false });
+            menu.IsOpen = true;
+        }
+
+        void UpdateMicTooltip() => MicToggle.ToolTip = $"Mikrofon aufnehmen: {AudioDevices.Describe(App.Settings.MicrophoneDevice)}";
 
         /// <summary>Ist noch keine Kamera gewählt, die erste gefundene nehmen.</summary>
         async System.Threading.Tasks.Task PickFirstWebcamAsync()

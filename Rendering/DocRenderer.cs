@@ -328,6 +328,43 @@ namespace SnipSnip
                     () => win2.DocsSetup(preview2, thumbs, "effects", TrackKind.Text, 0, 1.4));
                 Save(shot2, outDir, "studio-effects-ui.png");
                 win2.Close();
+
+                // 5) Projekte-Übersicht mit Demo-Projekten (Vorschaubilder aus den gerenderten Bildern)
+                var thumbsFor = new[]
+                {
+                    ("Produktdemo", RenderStudioFrame(p, screen, 720, 1.4), 24.0, 0),
+                    ("Rechnungen als PDF exportieren", ImageUtil.Load(IOPath.Combine(outDir, "studio-frame.png")), 41.5, 1),
+                    ("Onboarding – Teil 1", ImageUtil.Load(IOPath.Combine(outDir, "studio-zoom.png")), 132.0, 2),
+                    ("Fehler beim Login nachstellen", ImageUtil.Load(IOPath.Combine(outDir, "studio-effects.png")), 18.2, 4),
+                    ("Neue Funktionen in 1.5", ImageUtil.Load(IOPath.Combine(outDir, "studio-frame.png")), 64.0, 7)
+                };
+                string docsVideo = IOPath.Combine(IOPath.GetTempPath(), "SnipSnip", $"docs_videos_{Guid.NewGuid():N}");
+                string oldVideo = App.Settings.VideoFolder;
+                try
+                {
+                    App.Settings.VideoFolder = docsVideo;
+                    var day = new DateTime(2026, 10, 23, 14, 32, 0);
+                    foreach (var (title, img, dur, ago) in thumbsFor)
+                    {
+                        string pd = IOPath.Combine(StudioProject.ProjectsRoot, $"Aufnahme_{day.AddDays(-ago):yyyy-MM-dd_HH-mm-ss}");
+                        Directory.CreateDirectory(pd);
+                        StudioProject.SaveMeta(pd, new RecordingMeta { Width = 1920, Height = 1080, Fps = 30, Duration = dur, HasCursor = true, Complete = true });
+                        File.WriteAllText(IOPath.Combine(pd, "project.json"), "{ \"Title\": " + System.Text.Json.JsonSerializer.Serialize(title) + " }");
+                        var small = new TransformedBitmap(img, new ScaleTransform(424.0 / img.PixelWidth, 424.0 / img.PixelWidth));
+                        File.WriteAllBytes(IOPath.Combine(pd, "thumb.jpg"), ImageUtil.Encode(small, "jpg"));
+                        Directory.SetCreationTime(pd, day.AddDays(-ago).AddMinutes(-ago * 37));
+                    }
+                    var pw = new ProjectsWindow();
+                    var root3 = Detach(pw, close: false);
+                    var shot3 = Rasterize(Framed(root3, "SnipSnip – Projekte", 1080, 640, wallpaper), 1160, 720, pw.DocsLoad);
+                    Save(shot3, outDir, "projects.png");
+                    pw.Close();
+                }
+                finally
+                {
+                    App.Settings.VideoFolder = oldVideo;
+                    try { Directory.Delete(docsVideo, true); } catch { }
+                }
             }
             finally
             {

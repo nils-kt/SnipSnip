@@ -41,6 +41,8 @@
                                   ToolTip="System-Ton aufnehmen" Click="Audio_Click"/>
                     <ToggleButton x:Name="MicToggle" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconMic}"
                                   ToolTip="Mikrofon aufnehmen" Click="Audio_Click"/>
+                    <Button x:Name="MicPickBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconChevron}" Width="22" Padding="0"
+                            ToolTip="Mikrofon wählen" Click="MicPick_Click" Margin="-4,0,2,0"/>
                     <ToggleButton x:Name="CamToggle" Style="{StaticResource ToolToggle}" Tag="{StaticResource IconWebcam}"
                                   ToolTip="Webcam aufnehmen" Click="Audio_Click"/>
                     <Border Style="{StaticResource VSep}"/>
