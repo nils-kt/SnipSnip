@@ -79,9 +79,9 @@ namespace SnipSnip
         };
 
         /// <summary>Sichtbare Top-Level-Fenster in Z-Reihenfolge (oberstes zuerst), physische Koordinaten.</summary>
-        public static List<Rect> GetWindows()
+        public static List<(Rect Bounds, IntPtr Hwnd)> GetWindows()
         {
-            var list = new List<Rect>();
+            var list = new List<(Rect Bounds, IntPtr Hwnd)>();
             var shell = Native.GetShellWindow();
             var cls = new StringBuilder(256);
 
@@ -102,7 +102,7 @@ namespace SnipSnip
                     Native.GetWindowRect(h, out r);
 
                 int w = r.Right - r.Left, ht = r.Bottom - r.Top;
-                if (w > 4 && ht > 4) list.Add(new Rect(r.Left, r.Top, w, ht));
+                if (w > 4 && ht > 4) list.Add((new Rect(r.Left, r.Top, w, ht), h));
                 return true;
             }, IntPtr.Zero);
 

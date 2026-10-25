@@ -1,4 +1,6 @@
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Navigation;
 using Microsoft.Win32;
@@ -48,9 +50,16 @@ namespace SnipSnip
             QSmall.IsChecked = s.VideoCrf >= 26;
             SysAudioCheck.IsChecked = s.RecordSystemAudio;
             MicCheck.IsChecked = s.RecordMicrophone;
-            CursorCheck.IsChecked = s.VideoShowCursor;
-            ClicksCheck.IsChecked = s.VideoHighlightClicks;
+            WebcamCheck.IsChecked = s.RecordWebcam;
             CountdownCheck.IsChecked = s.RecordingCountdown;
+            IconsCheck.IsChecked = s.HideDesktopIcons;
+            NotesCheck.IsChecked = s.ShowSpeakerNotes;
+            AllKeysCheck.IsChecked = s.RecordAllKeys;
+            WinSizeOff.IsChecked = string.IsNullOrEmpty(s.RecordWindowSize);
+            WinSize720.IsChecked = s.RecordWindowSize == "1280x720";
+            WinSize1080.IsChecked = s.RecordWindowSize == "1920x1080";
+            WinSize1440.IsChecked = s.RecordWindowSize == "2560x1440";
+            Loaded += async (_, _) => await LoadWebcamsAsync();
             VideoFolderBox.Text = s.VideoFolder;
             UpdateFfmpegUi();
         }
@@ -75,6 +84,27 @@ namespace SnipSnip
             }
             else await App.Instance.EnsureFfmpegAsync(this);
             UpdateFfmpegUi();
+        }
+
+        async System.Threading.Tasks.Task LoadWebcamsAsync()
+        {
+            WebcamDevices.Children.Clear();
+            WebcamDevices.Children.Add(new TextBlock { Text = "Suche Kameras …", Style = (Style)FindResource("Note") });
+            var list = await WebcamCapture.ListDevicesAsync();
+            WebcamDevices.Children.Clear();
+            if (list.Count == 0)
+            {
+                WebcamDevices.Children.Add(new TextBlock { Text = FFmpeg.IsAvailable ? "Keine Kamera gefunden." : "Kameraliste benötigt FFmpeg.", Style = (Style)FindResource("Note") });
+                return;
+            }
+            foreach (var d in list)
+                WebcamDevices.Children.Add(new RadioButton
+                {
+                    Content = d,
+                    GroupName = "Cam",
+                    Style = (Style)FindResource("Seg"),
+                    IsChecked = d == s.WebcamDevice || (string.IsNullOrEmpty(s.WebcamDevice) && d == list[0])
+                });
         }
 
         void BrowseVideo_Click(object sender, RoutedEventArgs e)
@@ -172,9 +202,17 @@ namespace SnipSnip
             s.VideoCrf = QHigh.IsChecked == true ? 18 : QSmall.IsChecked == true ? 28 : 23;
             s.RecordSystemAudio = SysAudioCheck.IsChecked == true;
             s.RecordMicrophone = MicCheck.IsChecked == true;
-            s.VideoShowCursor = CursorCheck.IsChecked == true;
-            s.VideoHighlightClicks = ClicksCheck.IsChecked == true;
+            s.RecordWebcam = WebcamCheck.IsChecked == true;
+            s.WebcamDevice = WebcamDevices.Children.OfType<RadioButton>().FirstOrDefault(r => r.IsChecked == true)?.Content as string ?? s.WebcamDevice;
             s.RecordingCountdown = CountdownCheck.IsChecked == true;
+            s.HideDesktopIcons = IconsCheck.IsChecked == true;
+            s.ShowSpeakerNotes = NotesCheck.IsChecked == true;
+            s.RecordAllKeys = AllKeysCheck.IsChecked == true;
+            s.RecordWindowSize = WinSize720.IsChecked == true ? "1280x720" : WinSize1080.IsChecked == true ? "1920x1080"
+                               : WinSize1440.IsChecked == true ? "2560x1440" : "";
+            s.SpeakerNotes = App.Settings.SpeakerNotes;
+            s.StudioDefaultStyle = App.Settings.StudioDefaultStyle;
+            s.StudioPresets = App.Settings.StudioPresets;
             s.VideoFolder = VideoFolderBox.Text.Trim();
             s.FfmpegPath = App.Settings.FfmpegPath; // kann im Dialog geändert worden sein
 

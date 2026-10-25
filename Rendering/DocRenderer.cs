@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -65,7 +66,7 @@ namespace SnipSnip
 
             // 3b) Videoaufnahme: Rahmen + Steuerleiste, danach der Video-Editor
             Save(RenderRecording(desktop, B(demo.Content), B(demo.Pdf)), outDir, "recording.png");
-            Save(RenderVideoEditor(desktop, wallpaper, B(demo.AppWindow)), outDir, "video-editor.png");
+            RenderStudio(desktop, wallpaper, demo, B, outDir);
 
             // 4) Einstellungen
             Save(RenderSettings(wallpaper), outDir, "settings.png");
@@ -156,12 +157,6 @@ namespace SnipSnip
             Canvas.SetTop(frame, region.Y - 4);
             c.Children.Add(frame);
 
-            // Klick-Hervorhebung, wie sie im Video eingezeichnet wird
-            var ring = new Ellipse { Width = 30, Height = 30, Stroke = new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x30)), StrokeThickness = 3 };
-            Canvas.SetLeft(ring, clickTarget.X + clickTarget.Width * 0.62 - 15);
-            Canvas.SetTop(ring, clickTarget.Y + clickTarget.Height / 2 - 15);
-            c.Children.Add(ring);
-
             var bar = new RecordingBar(null!, new Rect(), true, true);
             bar.UpdateTime(TimeSpan.FromSeconds(42));
             bar.SetPaused(false);
@@ -174,32 +169,146 @@ namespace SnipSnip
             return Rasterize(g, W, H);
         }
 
-        static BitmapSource RenderVideoEditor(BitmapSource desktop, BitmapSource wallpaper, Rect appWindow)
+        /// <summary>Synthetisches Studio-Projekt: Aufnahme des Demo-Fensters mit Mausbahn, Klicks und Tastenkürzel.</summary>
+        static StudioProject DemoProject(BitmapSource screen, Rect appWin, Func<FrameworkElement, Rect> bounds, Demo demo, out string dir)
         {
-            BitmapSource Crop(Rect dip)
+            dir = IOPath.Combine(IOPath.GetTempPath(), "SnipSnip", $"docs_{Guid.NewGuid():N}", "Produktdemo");
+            Directory.CreateDirectory(dir);
+            int w = screen.PixelWidth & ~1, h = screen.PixelHeight & ~1;
+
+            // Punkte im Aufnahme-Koordinatensystem (Pixel relativ zum Fenster)
+            Point At(FrameworkElement e, double fx = 0.5, double fy = 0.5)
             {
-                var ir = new Int32Rect((int)(dip.X * Scale), (int)(dip.Y * Scale), (int)(dip.Width * Scale), (int)(dip.Height * Scale));
-                return ImageUtil.ToBgra(new CroppedBitmap(desktop, ir));
+                var r = bounds(e);
+                return new Point((r.X + r.Width * fx - appWin.X) * Scale, (r.Y + r.Height * fy - appWin.Y) * Scale);
+            }
+            var keys = new (double T, Point P)[]
+            {
+                (0.0, new Point(w * 0.82, h * 0.86)),
+                (2.6, At(demo.Pdf, 0.45)),
+                (4.4, At(demo.Pdf, 0.45)),
+                (7.6, At(demo.Email, 0.35)),
+                (10.6, At(demo.Email, 0.6)),
+                (12.8, At(demo.Total, 0.5)),
+                (15.6, At(demo.Total, 0.5)),
+                (19.0, At(demo.ChartCard, 0.7, 0.6)),
+                (24.0, new Point(w * 0.8, h * 0.85))
+            };
+            Point PathAt(double t)
+            {
+                for (int i = 0; i + 1 < keys.Length; i++)
+                {
+                    if (t > keys[i + 1].T) continue;
+                    double f = (t - keys[i].T) / (keys[i + 1].T - keys[i].T);
+                    f = f * f * (3 - 2 * f);
+                    return new Point(keys[i].P.X + (keys[i + 1].P.X - keys[i].P.X) * f, keys[i].P.Y + (keys[i + 1].P.Y - keys[i].P.Y) * f);
+                }
+                return keys[^1].P;
             }
 
-            var poster = Crop(appWindow);
-            // Vorschaubilder: wandernder Ausschnitt, damit die Zeitleiste nach Bewegung aussieht
-            var thumbs = Enumerable.Range(0, 12).Select(i =>
+            var sb = new StringBuilder();
+            string F(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            for (double t = 0; t <= 24; t += 1 / 60.0)
             {
-                double w = appWindow.Width * 0.62, h = w * 72 / 128;
-                double x = appWindow.X + (appWindow.Width - w) * (i / 11.0);
-                double y = appWindow.Y + 40 + (appWindow.Height - h - 40) * (0.5 + 0.5 * Math.Sin(i * 0.8));
-                return Crop(new Rect(x, y, w, h));
-            }).ToList();
+                var pt = PathAt(t);
+                sb.AppendLine($"{{\"t\":{F(t)},\"x\":{(int)pt.X},\"y\":{(int)pt.Y},\"c\":0}}");
+            }
+            foreach (var ct in new[] { 3.4, 9.2, 14.0 })
+            {
+                sb.AppendLine($"{{\"t\":{F(ct)},\"d\":0}}");
+                sb.AppendLine($"{{\"t\":{F(ct + 0.09)},\"u\":0}}");
+            }
+            sb.AppendLine($"{{\"t\":{F(9.8)},\"k\":\"Strg + C\"}}");
+            File.WriteAllText(IOPath.Combine(dir, "events.jsonl"), sb.ToString());
+            File.WriteAllText(IOPath.Combine(dir, "cursors.json"), "[{\"Id\":0,\"Kind\":\"arrow\",\"HotX\":0,\"HotY\":0,\"File\":\"cursors/0.png\"}]");
+            StudioProject.SaveMeta(dir, new RecordingMeta { Width = w, Height = h, Fps = 30, Duration = 24, HasCursor = true, Complete = true });
 
-            var ed = new VideoEditorWindow("Aufnahme.mp4", false);
-            ed.DocsSetup(poster, thumbs, TimeSpan.FromSeconds(18.4), poster.PixelWidth & ~1, poster.PixelHeight & ~1,
-                new[] { (0.0, 2.2, true), (2.2, 9.6, false), (9.6, 11.4, true), (11.4, 18.4, false) },
-                position: 5.6, selectedIndex: 1);
-            var root = Detach(ed, close: false);
-            var shot = Rasterize(Framed(root, "SnipSnip – Aufnahme.mp4", 1200, 760, wallpaper), 1280, 840, ed.DocsRefresh);
-            ed.Close();
-            return shot;
+            var p = StudioProject.Load(dir);
+            var st = p.Edits.Style;
+            st.Background = BackgroundKind.Wallpaper;
+            st.Preset = 0;
+            st.Padding = 7;
+            st.ClickEffect = ClickEffect.Ripple;
+
+            // Maske über der IBAN, ein entfernter Abschnitt und ein beschleunigter Abschnitt für die Zeitleiste
+            var iban = bounds(demo.Iban);
+            p.Edits.Masks.Add(new MaskSegment
+            {
+                Start = 8, End = 13, Kind = MaskKind.Blur,
+                X = (iban.X - appWin.X - 3) * Scale / w, Y = (iban.Y - appWin.Y - 3) * Scale / h,
+                W = (iban.Width + 6) * Scale / w, H = (iban.Height + 6) * Scale / h
+            });
+            p.SplitClipAt(16.5);
+            p.SplitClipAt(18.0);
+            p.SplitClipAt(21.0);
+            foreach (var c in p.Edits.Clips)
+            {
+                if (c.Start >= 16.4 && c.End <= 18.1) c.Removed = true;
+                if (c.Start >= 20.9) c.Speed = 2;
+            }
+            return p;
+        }
+
+        static SkiaSharp.SKImage ToSk(BitmapSource b)
+        {
+            var bgra = ImageUtil.ToBgra(b);
+            int w = bgra.PixelWidth, h = bgra.PixelHeight;
+            var buf = new byte[w * h * 4];
+            bgra.CopyPixels(buf, w * 4, 0);
+            return SkiaSharp.SKImage.FromPixelCopy(new SkiaSharp.SKImageInfo(w, h, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul), buf, w * 4);
+        }
+
+        static BitmapSource RenderStudioFrame(StudioProject p, SkiaSharp.SKImage screen, int shortSide, double t)
+        {
+            using var r = new StudioRenderer(p);
+            var (w, h) = r.OutputSize(shortSide);
+            using var surface = SkiaSharp.SKSurface.Create(new SkiaSharp.SKImageInfo(w, h, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul));
+            r.Render(surface.Canvas, w, h, t, p.OutputAt(t) ?? t, screen, null, export: true);
+            using var snap = surface.Snapshot();
+            return StudioWindow.ToBitmap(snap);
+        }
+
+        /// <summary>Studio-Bilder: ein fertiges Video-Bild (Zoom, Cursor, Maske, Taste) und das Studio-Fenster.</summary>
+        static void RenderStudio(BitmapSource desktop, BitmapSource wallpaper, Demo demo, Func<FrameworkElement, Rect> bounds, string outDir)
+        {
+            var appWin = bounds(demo.AppWindow);
+            BitmapSource Crop(Rect dip)
+            {
+                var ir = new Int32Rect((int)(dip.X * Scale), (int)(dip.Y * Scale), (int)(dip.Width * Scale) & ~1, (int)(dip.Height * Scale) & ~1);
+                return ImageUtil.ToBgra(new CroppedBitmap(desktop, ir));
+            }
+            var screenBmp = Crop(appWin);
+            using var screen = ToSk(screenBmp);
+            var p = DemoProject(screenBmp, appWin, bounds, demo, out string dir);
+            try
+            {
+                // 1) fertiges Video-Bild in 1080p, mitten im Zoom auf die E-Mail-Zeile
+                Save(RenderStudioFrame(p, screen, 1080, 10.0), outDir, "studio-zoom.png");
+                // ohne Zoom: Hintergrund, Rahmen, Schatten und Klick-Welle
+                Save(RenderStudioFrame(p, screen, 1080, 1.4), outDir, "studio-frame.png");
+
+                // 2) Studio-Fenster
+                var thumbs = Enumerable.Range(0, 14).Select(i =>
+                {
+                    double tw = appWin.Width * 0.55, th = tw * 64 / 114;
+                    double x = appWin.X + (appWin.Width - tw) * (i / 13.0);
+                    double y = appWin.Y + 40 + (appWin.Height - th - 40) * (0.5 + 0.5 * Math.Sin(i * 0.7));
+                    return Crop(new Rect(x, y, tw, th));
+                }).ToList();
+
+                var win = new StudioWindow(p);
+                var preview = RenderStudioFrame(p, screen, 720, 10.0);
+                int zoomIdx = p.Edits.Zooms.FindIndex(z => z.Start <= 10 && z.End >= 10);
+                var root = Detach(win, close: false);
+                var shot = Rasterize(Framed(root, $"SnipSnip Studio – {p.Name}", 1440, 880, wallpaper), 1520, 960,
+                    () => win.DocsSetup(preview, thumbs, "background", TrackKind.Zoom, zoomIdx, 10.0));
+                Save(shot, outDir, "studio.png");
+                win.Close();
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { }
+            }
         }
 
         static BitmapSource RenderSettings(BitmapSource wallpaper)

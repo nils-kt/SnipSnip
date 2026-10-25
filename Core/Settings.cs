@@ -42,9 +42,22 @@ namespace SnipSnip
         public int VideoCrf { get; set; } = 23;
         public bool RecordSystemAudio { get; set; } = true;
         public bool RecordMicrophone { get; set; }
-        public bool VideoShowCursor { get; set; } = true;
-        public bool VideoHighlightClicks { get; set; } = true;
+        public bool RecordWebcam { get; set; }
+        public string WebcamDevice { get; set; } = "";
         public bool RecordingCountdown { get; set; } = true;
+        public bool HideDesktopIcons { get; set; }
+        /// <summary>Fenster-Modus: Fenster vor der Aufnahme auf diese Größe setzen ("" = aus, z. B. "1920x1080").</summary>
+        public string RecordWindowSize { get; set; } = "";
+        public bool ShowSpeakerNotes { get; set; }
+        public string SpeakerNotes { get; set; } = "";
+        /// <summary>Alle Tasten aufzeichnen (sonst nur Tastenkürzel – Datenschutz).</summary>
+        public bool RecordAllKeys { get; set; }
+
+        // ---- Studio
+        public StudioStyle? StudioDefaultStyle { get; set; }
+        public Dictionary<string, StudioStyle> StudioPresets { get; set; } = new();
+        public string ExportResolution { get; set; } = "1080";
+        public int ExportFps { get; set; } = 60;
         public string VideoFolder { get; set; } =
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyVideos), "SnipSnip");
         /// <summary>Optionaler fester Pfad zu ffmpeg.exe (leer = automatisch suchen).</summary>

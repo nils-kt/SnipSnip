@@ -16,14 +16,15 @@ namespace SnipSnip
         readonly Rect region; // physisch
         DoubleAnimation? blink;
 
-        internal RecordingBar(RecordingSession s, Rect physicalRegion, bool systemAudio, bool mic)
+        internal RecordingBar(RecordingSession s, Rect physicalRegion, bool systemAudio, bool mic, bool webcam = false)
         {
             InitializeComponent();
             session = s;
             region = physicalRegion;
             if (systemAudio) AddAudioIcon("IconSpeaker", "System-Ton wird aufgenommen");
             if (mic) AddAudioIcon("IconMic", "Mikrofon wird aufgenommen");
-            AudioIcons.Visibility = systemAudio || mic ? Visibility.Visible : Visibility.Collapsed;
+            if (webcam) AddAudioIcon("IconWebcam", "Webcam wird aufgenommen");
+            AudioIcons.Visibility = systemAudio || mic || webcam ? Visibility.Visible : Visibility.Collapsed;
 
             SourceInitialized += (_, _) =>
             {

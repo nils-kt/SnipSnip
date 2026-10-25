@@ -32,7 +32,8 @@ namespace SnipSnip
         public Point Cursor { get; private set; }
         public bool Dragging { get; private set; }
 
-        List<Rect> windows = new();
+        List<(Rect Bounds, IntPtr Hwnd)> windows = new();
+        IntPtr hoverHwnd;
         readonly List<OverlayWindow> overlays = new();
         CaptureToolbar? toolbar;
         OverlayWindow? toolbarHost;
@@ -132,14 +133,15 @@ namespace SnipSnip
 
         Rect? WindowAt(Point p)
         {
-            foreach (var w in windows)
+            foreach (var (w, hwnd) in windows)
             {
                 if (p.X >= w.Left && p.X < w.Right && p.Y >= w.Top && p.Y < w.Bottom)
                 {
                     var r = Rect.Intersect(w, Virtual);
-                    if (!r.IsEmpty && r.Width > 4 && r.Height > 4) return r;
+                    if (!r.IsEmpty && r.Width > 4 && r.Height > 4) { hoverHwnd = hwnd; return r; }
                 }
             }
+            hoverHwnd = IntPtr.Zero;
             return MonitorAt(p);
         }
 
@@ -377,8 +379,9 @@ namespace SnipSnip
                 if (region.IsEmpty || region.Width < 8 || region.Height < 8) return;
                 var act = Action;
                 var hid = hidden;
+                var hwnd = Mode == CaptureMode.Window ? hoverHwnd : IntPtr.Zero;
                 End(restoreHidden: false); // das versteckte Fenster erst nach der Aufnahme zurückholen
-                App.Instance.StartRecording(region, act, hid);
+                App.Instance.StartRecording(region, act, hid, hwnd);
                 return;
             }
 

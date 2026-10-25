@@ -71,6 +71,17 @@
         <Geometry x:Key="IconSplit">M12,3 V21 M5,8 L9,12 L5,16 M19,8 L15,12 L19,16</Geometry>
         <Geometry x:Key="IconTrimStart">M9,4 H6 V20 H9 M12,8 L16,12 L12,16 M16,12 H21</Geometry>
         <Geometry x:Key="IconTrimEnd">M15,4 H18 V20 H15 M12,8 L8,12 L12,16 M8,12 H3</Geometry>
+        <Geometry x:Key="IconWebcam">M6,10 A6,6 0 1 0 18,10 A6,6 0 1 0 6,10 Z M10,10 A2,2 0 1 0 14,10 A2,2 0 1 0 10,10 Z M8,21 H16 M12,16 V21</Geometry>
+        <Geometry x:Key="IconZoom">M3,10.5 A7.5,7.5 0 1 0 18,10.5 A7.5,7.5 0 1 0 3,10.5 Z M16,16 L21,21 M10.5,7.5 V13.5 M7.5,10.5 H13.5</Geometry>
+        <Geometry x:Key="IconCursor">M5,3 L5,18 L9,14.5 L11.8,20.5 L14.2,19.4 L11.5,13.5 L17,13.5 Z</Geometry>
+        <Geometry x:Key="IconLayers">M12,3 L21,8 L12,13 L3,8 Z M3,12 L12,17 L21,12 M3,16 L12,21 L21,16</Geometry>
+        <Geometry x:Key="IconKeyboard">M2.5,6 H21.5 V18 H2.5 Z M6,10 H6.01 M9.5,10 H9.51 M13,10 H13.01 M16.5,10 H16.51 M7,14 H17</Geometry>
+        <Geometry x:Key="IconFrame">M4,4 H20 V20 H4 Z M8,8 H16 V16 H8 Z</Geometry>
+        <Geometry x:Key="IconMask">M3,6 H21 V18 H3 Z M7,10 H17 V14 H7 Z</Geometry>
+        <Geometry x:Key="IconStar">M12,3 L14.6,9 L21,9.6 L16.1,13.8 L17.6,20.2 L12,16.8 L6.4,20.2 L7.9,13.8 L3,9.6 L9.4,9 Z</Geometry>
+        <Geometry x:Key="IconExport">M12,15 V3 M7,8 L12,3 L17,8 M5,14 V21 H19 V14</Geometry>
+        <Geometry x:Key="IconSpeed">M4,18 A9,9 0 1 1 20,18 M12,13 L16,8</Geometry>
+        <Geometry x:Key="IconSearch">M3,10.5 A7.5,7.5 0 1 0 18,10.5 A7.5,7.5 0 1 0 3,10.5 Z M16,16 L21,21</Geometry>
         <Geometry x:Key="IconGif">M3,5 H21 V19 H3 Z M10,9.5 H7.5 V14.5 H10 V12.5 H9 M12.5,9.5 V14.5 M15,14.5 V9.5 H17.5 M15,12 H17</Geometry>
 
         <!-- ============ Button-Templates ============ -->

@@ -4,7 +4,7 @@
 
 # SnipSnip
 
-**Ein schönes Snipping Tool für Windows: Screenshots und Bildschirmvideos, mit Editor, Zensur, Videoschnitt und Upload mit einem Klick.**
+**Ein schönes Snipping Tool für Windows: Screenshots und Bildschirmvideos im Stil von Screen Studio, mit Editor, Zensur, Auto-Zoom und Upload mit einem Klick.**
 
 Drück <kbd>Pause</kbd>, zieh einen Bereich auf, und schon kannst du markieren, unkenntlich machen und teilen.
 
@@ -50,33 +50,45 @@ Ein Druck auf <kbd>Pause</kbd> friert den Bildschirm ein, und oben in der Mitte 
 
 Außerdem gibt es Rückgängig/Wiederholen, Zoom (<kbd>Strg</kbd>+Mausrad), Verschieben der Ansicht mit der mittleren Maustaste und Drag & Drop von Bildern. Die Freihand-Aufnahme behält Transparenz.
 
-### Bildschirmvideos aufnehmen
+### Bildschirmvideos wie mit Screen Studio
 
 In der Leiste auf **Video** umschalten und einen Bereich, ein Fenster oder einen Monitor wählen. Nach einem kurzen 3-2-1-Countdown läuft die Aufnahme. Erneut <kbd>Pause</kbd> drücken beendet sie.
 
-<img src="docs/images/recording.png" alt="Laufende Aufnahme mit gestricheltem Rahmen, Klick-Markierung und Steuerleiste">
+<img src="docs/images/recording.png" alt="Laufende Aufnahme mit gestricheltem Rahmen und Steuerleiste">
 
-- **System-Ton und Mikrofon** lassen sich direkt in der Leiste zuschalten. Beide bleiben synchron zum Bild.
-- **Steuerleiste** mit Laufzeit, Pause/Fortsetzen, Stopp und Verwerfen. Leiste und Rahmen sind im Video selbst unsichtbar.
-- **Mauszeiger und Klicks** werden eingezeichnet. Klicks erscheinen als gelber Ring, damit Zuschauer sie sehen.
-- 15, 30 oder 60 Bilder pro Sekunde, H.264-MP4 mit wählbarer Qualität.
+Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip zeichnet das Bild ohne Mauszeiger auf und speichert Mausbahn, Klicks, Tastenkürzel, Webcam, System-Ton und Mikrofon getrennt. Erst im Studio entsteht daraus das fertige Video. Darum lassen sich Zoom, Cursor, Hintergrund und Layout auch nachträglich ändern.
 
-### Video-Editor: schneiden, kürzen, als GIF exportieren
+<img src="docs/images/studio-frame.png" alt="Fertiges Video: Aufnahme mit abgerundeten Ecken und Schatten auf einem Wallpaper">
 
-<img src="docs/images/video-editor.png" alt="Video-Editor mit Vorschau, Zeitleiste aus Vorschaubildern, entfernten Abschnitten und Export-Optionen">
+**Aufnahme**
+- System-Ton, Mikrofon und **Webcam** direkt in der Leiste zuschalten. Alles bleibt synchron, auch bei Pause und Fortsetzen.
+- Steuerleiste mit Laufzeit, Pause, Stopp und Verwerfen. Leiste, Rahmen und **Sprechernotizen** sind im Video unsichtbar.
+- Desktop-Symbole ausblenden, Fenster vor der Aufnahme auf eine **exakte Größe** setzen (z. B. 1920 × 1080).
+- Absturzsicher: Das Projekt wird laufend gespeichert und lässt sich nach einem Absturz wiederherstellen.
+- Datenschutz: Bei normalem Tippen wird nur der Zeitpunkt gespeichert, nicht die Taste.
 
-| Aktion | Taste | |
-|---|:---:|---|
-| Abspielen / Pause | <kbd>Leertaste</kbd> | Entfernte Abschnitte werden in der Vorschau übersprungen. |
-| Bild für Bild | <kbd>←</kbd> <kbd>→</kbd> | mit <kbd>Umschalt</kbd> in 1-Sekunden-Schritten |
-| Anfang · Ende setzen | <kbd>A</kbd> · <kbd>E</kbd> | schneidet alles vor bzw. nach der Abspielposition weg |
-| Teilen | <kbd>S</kbd> | teilt an der Abspielposition |
-| Abschnitt entfernen / wiederherstellen | <kbd>Entf</kbd> | Abschnitt vorher in der Zeitleiste anklicken |
+### Das Studio
 
-Exportiert wird als **MP4** oder **GIF** (10/15/24 fps), in 100, 75 oder 50 % Größe, wahlweise ohne Ton. **Kopieren** legt die Videodatei in die Zwischenablage, sodass du sie direkt in Discord, Teams oder den Explorer einfügen kannst. **Hochladen** schickt sie zu Imgur oder catbox.moe.
+<img src="docs/images/studio.png" alt="SnipSnip Studio mit Vorschau, Seitenleiste für Hintergründe und Zeitleiste mit Zoom-, Masken- und Clip-Spuren">
+
+| Bereich | Was geht |
+|---|---|
+| **Kamera & Zoom** | Automatische Zooms bei Klicks und Tastenkürzeln, manuelle Zooms auf der Zeitleiste, die Kamera folgt weich dem Cursor oder einem festen Punkt, Lupen-Zoom, Bewegungsunschärfe |
+| **Cursor** | Geglättete Mausbahn, Größe, hochauflösender Cursor, Ausblenden im Ruhezustand, Klick-Effekte (Kreis oder Welle), Klick-Geräusche, Cursor-Loop |
+| **Hintergrund & Rahmen** | Wallpaper, Verläufe, Farben, eigene Bilder (mit Unschärfe); Abstand, Innenrand, Ecken, Schatten (Deckkraft, Weichheit, Abstand, Winkel); Zuschnitt |
+| **Format** | Auto, 16:9, 4:3, 1:1, 4:5 und 9:16 für Reels, TikTok und Shorts. Zoom und Webcam passen sich an. |
+| **Webcam** | Layouts *Overlay*, *Geteilt*, *Nur Kamera* und *Nur Bildschirm*, auch abschnittsweise mit weicher Überblendung; Kreis, abgerundet oder eckig; weicht dem Cursor aus, verkleinert sich beim Zoomen, blendet sich bei Stille aus; Farbkorrektur und Schärfen |
+| **Tastatur** | Tastenkürzel einblenden, lange Tipp-Phasen automatisch beschleunigen |
+| **Bearbeitung** | Teilen, entfernen, beschleunigen (0,5× bis 8×); Masken (Weichzeichnen, Verpixeln, Abdecken mit Umgebungsfarbe, Hervorheben) direkt in der Vorschau ziehen; Rückgängig; Befehlspalette (<kbd>Strg</kbd>+<kbd>K</kbd>) |
+| **Ton** | Lautstärke je Spur, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife |
+| **Export** | MP4 in 720p bis 4K mit 30/60 fps, optimierte GIFs bis 1080p, Kopieren als Datei (für Discord, Teams …), Hochladen zu Imgur oder catbox.moe |
+| **Vorlagen** | Stile speichern und als Standard für neue Aufnahmen festlegen |
+
+<img src="docs/images/studio-zoom.png" alt="Automatischer Zoom auf die angeklickte Stelle mit weichgezeichneter IBAN und eingeblendetem Tastenkürzel">
+
+Tasten im Studio: <kbd>Leertaste</kbd> abspielen, <kbd>S</kbd> teilen, <kbd>Entf</kbd> entfernen, <kbd>Z</kbd> Zoom, <kbd>M</kbd> Maske, <kbd>L</kbd> Layout, <kbd>←</kbd>/<kbd>→</kbd> Bild für Bild, <kbd>Strg</kbd>+<kbd>E</kbd> exportieren, <kbd>Strg</kbd>+<kbd>K</kbd> Befehle. Vorhandene Videos lassen sich ebenfalls importieren und gestalten (ohne Cursor-Daten).
 
 > Für Videos nutzt SnipSnip das freie [FFmpeg](https://ffmpeg.org). Fehlt es, bietet SnipSnip beim ersten Video an, es herunterzuladen: offizieller Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), per SHA-256 geprüft. Alternativ: `winget install Gyan.FFmpeg`.
-
 ### Einstellungen & Benachrichtigungen
 
 <table>
@@ -176,8 +188,9 @@ Die Pipeline baut die drei Varianten (x64, ARM64 und die kleine .NET-abhängige 
 App.xaml(.cs)          Tray, globales Tastenkürzel, Single-Instance, Aktionen nach der Aufnahme
 Capture/               Aufnahme-Session, Overlay pro Monitor, die Leiste oben, Countdown
 Editor/                Bild-Editor, Annotationen (Formen, Text, Zensur)
-Recording/             Videoaufnahme (GDI → FFmpeg, WASAPI-Ton), Steuerleiste, Rahmen
-Video/                 Video-Editor (Zeitleiste, Schnitt) und Export (MP4/GIF)
+Recording/             Videoaufnahme: Bild (GDI → FFmpeg), Ton (WASAPI), Webcam, Maus/Tasten, Steuerleiste
+Studio/                Studio: Projektformat, Renderer (SkiaSharp), Kamera/Auto-Zoom, Zeitleiste, Export
+Video/                 Vorschaubilder für Zeitleiste und Benachrichtigungen
 Core/                  Bildschirmaufnahme, FFmpeg, Bild-Export, Upload, Einstellungen, Hotkey
 UI/                    Einstellungen, Upload-Verlauf, Toast, FFmpeg-Einrichtung
 Rendering/             Rendert die README-Bilder

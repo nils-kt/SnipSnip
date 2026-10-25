@@ -43,6 +43,20 @@ namespace SnipSnip
 
             string? fileArg = e.Args.FirstOrDefault(a => !a.StartsWith("--") && File.Exists(a));
 
+            int exportIdx = Array.IndexOf(e.Args, "--export");
+            if (exportIdx >= 0 && exportIdx + 2 < e.Args.Length)
+            {
+                ExportAndExit(e.Args[exportIdx + 1], e.Args[exportIdx + 2]);
+                return;
+            }
+
+            int frameIdx = Array.IndexOf(e.Args, "--render-frame");
+            if (frameIdx >= 0 && frameIdx + 3 < e.Args.Length)
+            {
+                RenderFrameAndExit(e.Args[frameIdx + 1], e.Args[frameIdx + 2], e.Args[frameIdx + 3]);
+                return;
+            }
+
             mutex = new Mutex(true, MutexName, out bool created);
             if (!created)
             {
@@ -77,6 +91,8 @@ namespace SnipSnip
             Settings = AppSettings.Load();
             SetupTray();
             System.Threading.Tasks.Task.Run(ScreenRecorder.CleanupOldTemp);
+            DesktopIcons.Restore();
+            Dispatcher.InvokeAsync(CheckCrashRecovery, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
 
             hotkey = new HotkeyManager();
             hotkey.Pressed += () => StartCapture();
@@ -134,6 +150,58 @@ namespace SnipSnip
                     File.WriteAllText(Path.Combine(outDir, "render-error.txt"), ex.ToString());
                 }
                 catch { }
+                Shutdown(1);
+            }
+        }
+
+        /// <summary>Kommandozeilen-Export eines Studio-Projekts (MP4, 1080p, Einstellungen aus dem Projekt).</summary>
+        async void ExportAndExit(string projectDir, string output)
+        {
+            try
+            {
+                Settings = AppSettings.Load();
+                var p = StudioProject.Load(projectDir);
+                var opts = new StudioExportOptions
+                {
+                    Gif = output.EndsWith(".gif", StringComparison.OrdinalIgnoreCase),
+                    ShortSide = int.TryParse(Settings.ExportResolution, out int ss) ? ss : 1080,
+                    Fps = Settings.ExportFps,
+                    Crf = 20
+                };
+                await StudioExporter.ExportAsync(p, opts, Path.GetFullPath(output), (_, _) => { }, CancellationToken.None);
+                Shutdown(0);
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(output + ".error.txt", ex.ToString()); } catch { }
+                Shutdown(1);
+            }
+        }
+
+        /// <summary>Entwickler-Werkzeug: ein Bild eines Studio-Projekts in 1080p rendern (wie im Export).</summary>
+        void RenderFrameAndExit(string projectDir, string time, string output)
+        {
+            try
+            {
+                Settings = AppSettings.Load();
+                var p = StudioProject.Load(projectDir);
+                double t = double.Parse(time, System.Globalization.CultureInfo.InvariantCulture);
+                using var r = new StudioRenderer(p);
+                var (w, h) = r.OutputSize(1080);
+                using var screen = new FrameDecoder(p.ScreenFile, p.Meta.Width, p.Meta.Height, Math.Max(1, p.Meta.Fps));
+                using var cam = p.HasWebcam ? new FrameDecoder(p.WebcamFile!, 1280, 720, 30, 960) : null;
+                var camImg = cam?.Get(p.Meta.WallAt(t) - p.Meta.WebcamStartEpoch);
+                using var surface = SkiaSharp.SKSurface.Create(new SkiaSharp.SKImageInfo(w, h, SkiaSharp.SKColorType.Bgra8888, SkiaSharp.SKAlphaType.Premul));
+                r.Render(surface.Canvas, w, h, t, p.OutputAt(t) ?? t, screen.Get(t), camImg, export: true);
+                using var img = surface.Snapshot();
+                using var data = img.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
+                File.WriteAllBytes(output, data.ToArray());
+                File.WriteAllText(output + ".txt", r.DebugInfo(w, h, t));
+                Shutdown(0);
+            }
+            catch (Exception ex)
+            {
+                try { File.WriteAllText(output + ".txt", ex.ToString()); } catch { }
                 Shutdown(1);
             }
         }
@@ -232,15 +300,49 @@ namespace SnipSnip
         }
 
         /// <summary>Wird nach einer Bereichsauswahl im Video-Modus aufgerufen.</summary>
-        public async void StartRecording(Rect physicalRegion, AfterCapture action, Window? hidden)
+        public async void StartRecording(Rect physicalRegion, AfterCapture action, Window? hidden, IntPtr windowHandle = default)
         {
             if (!FFmpeg.IsAvailable && !await EnsureFfmpegAsync(null))
             {
                 if (hidden != null) { hidden.Show(); hidden.Activate(); }
                 return;
             }
+
+            // Fenster-Modus: Fenster vorher auf eine feste Größe bringen (z. B. 1920 × 1080)
+            if (windowHandle != IntPtr.Zero && TryParseSize(Settings.RecordWindowSize, out int tw, out int th))
+            {
+                var r = await ResizeWindowAsync(windowHandle, tw, th);
+                if (r != null) physicalRegion = r.Value;
+            }
             RecordingSession.Start(physicalRegion, action, hidden);
         }
+
+        static bool TryParseSize(string s, out int w, out int h)
+        {
+            w = h = 0;
+            var parts = (s ?? "").Split('x');
+            return parts.Length == 2 && int.TryParse(parts[0], out w) && int.TryParse(parts[1], out h) && w > 100 && h > 100;
+        }
+
+        /// <summary>Setzt die sichtbare Fenstergröße exakt (DWM-Rahmen wird herausgerechnet) und liefert die neuen Grenzen.</summary>
+        static async Task<Rect?> ResizeWindowAsync(IntPtr hwnd, int w, int h)
+        {
+            try
+            {
+                Native.GetWindowRect(hwnd, out var wr);
+                Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out Native.RECT fr, 16);
+                int extraW = (wr.Right - wr.Left) - (fr.Right - fr.Left), extraH = (wr.Bottom - wr.Top) - (fr.Bottom - fr.Top);
+                ShowWindowNormal(hwnd);
+                Native.SetWindowPos(hwnd, IntPtr.Zero, wr.Left, wr.Top, w + extraW, h + extraH, 0x0004 | Native.SWP_NOACTIVATE);
+                await Task.Delay(350);
+                Native.DwmGetWindowAttribute(hwnd, Native.DWMWA_EXTENDED_FRAME_BOUNDS, out fr, 16);
+                return new Rect(fr.Left, fr.Top, fr.Right - fr.Left, fr.Bottom - fr.Top);
+            }
+            catch { return null; }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+        static void ShowWindowNormal(IntPtr hwnd) => ShowWindow(hwnd, 9 /* SW_RESTORE */);
 
         /// <summary>Fragt nach, ob FFmpeg heruntergeladen werden soll. true = FFmpeg ist danach verfügbar.</summary>
         public Task<bool> EnsureFfmpegAsync(Window? owner)
@@ -251,60 +353,112 @@ namespace SnipSnip
             return Task.FromResult(w.ShowDialog() == true && FFmpeg.IsAvailable);
         }
 
-        public async Task HandleRecording(string path, AfterCapture action)
+        /// <summary>Nach der Aufnahme: Studio öffnen oder direkt mit dem Standard-Stil exportieren.</summary>
+        public async Task HandleRecording(string projectDir, AfterCapture action)
         {
-            string? saved = null;
+            StudioProject project;
+            try { project = StudioProject.Load(projectDir); }
+            catch (Exception ex)
+            {
+                Toast.Notify("Projekt konnte nicht geladen werden", ex.Message, null, () => OpenFolder(projectDir), 10);
+                return;
+            }
+
+            // Editor: direkt ins Studio (das Projekt wird dort automatisch gespeichert)
+            if (action == AfterCapture.Editor)
+            {
+                OpenStudio(project);
+                return;
+            }
+
+            // Direkt-Export mit dem Standard-Stil (inkl. Auto-Zoom, Hintergrund, Cursor …)
+            string? file = null;
+            var toast = Toast.Notify("Video wird erstellt …", project.Name, null, null, 0);
+            toast.SetProgress(true);
             try
             {
-                if (Settings.AutoSave || action == AfterCapture.Save)
+                Directory.CreateDirectory(Settings.VideoFolder);
+                bool keep = Settings.AutoSave || action == AfterCapture.Save;
+                file = keep
+                    ? Path.Combine(Settings.VideoFolder, project.Name + ".mp4")
+                    : Path.Combine(Path.GetTempPath(), "SnipSnip", $"export_{Guid.NewGuid():N}", project.Name + ".mp4");
+                Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                int fps = Math.Min(Settings.ExportFps, Math.Max(30, project.Meta.Fps));
+                var opts = new StudioExportOptions { ShortSide = int.TryParse(Settings.ExportResolution, out int ss) ? ss : 1080, Fps = fps, Crf = Settings.VideoCrf };
+                int lastPct = -1;
+                await StudioExporter.ExportAsync(project, opts, file, (v, _) => Dispatcher.InvokeAsync(() =>
                 {
-                    Directory.CreateDirectory(Settings.VideoFolder);
-                    saved = Path.Combine(Settings.VideoFolder, Path.GetFileName(path));
-                    File.Copy(path, saved, true);
-                }
+                    int pct = (int)(v * 100);
+                    if (pct != lastPct) { lastPct = pct; toast.Update("Video wird erstellt …", $"{project.Name}  ·  {pct} %", null, 0); toast.SetProgress(true); }
+                }), CancellationToken.None);
+
                 if (Settings.CopyToClipboard || action == AfterCapture.Copy)
-                {
-                    var list = new System.Collections.Specialized.StringCollection { saved ?? path };
-                    try { Clipboard.SetFileDropList(list); } catch { }
-                }
+                    try { Clipboard.SetFileDropList(new System.Collections.Specialized.StringCollection { file }); } catch { }
             }
             catch (Exception ex)
             {
-                Toast.Notify("Fehler", ex.Message, null);
+                toast.Update("Export fehlgeschlagen", ex.Message, () => OpenStudio(project), 12, ("Im Studio öffnen", () => OpenStudio(project)));
+                return;
             }
 
+            var thumb = await VideoExporter.ThumbnailAsync(file);
             switch (action)
             {
                 case AfterCapture.Editor:
-                    OpenVideoEditor(path, isTempRecording: saved == null);
+                    toast.Update("Video gespeichert", Path.GetFileName(file), () => OpenFolder(file, true), 4);
+                    OpenStudio(project);
                     break;
                 case AfterCapture.Copy:
-                {
-                    var thumb = await VideoExporter.ThumbnailAsync(path);
-                    Toast.Notify("Video kopiert", "Zum Einfügen in Discord, Teams, Explorer … – klicken zum Bearbeiten.", thumb,
-                        () => OpenVideoEditor(path, saved == null), 6);
+                    toast.Update("Video kopiert", "Zum Einfügen in Discord, Teams, Explorer … – klicken zum Bearbeiten.", () => OpenStudio(project), 6,
+                        ("Im Studio bearbeiten", () => OpenStudio(project)));
                     break;
-                }
                 case AfterCapture.Save:
-                    if (saved != null)
-                    {
-                        var thumb = await VideoExporter.ThumbnailAsync(saved);
-                        Toast.Notify("Video gespeichert", Path.GetFileName(saved), thumb, () => OpenVideoEditor(saved, false), 6,
-                            ("Ordner öffnen", () => OpenFolder(saved, true)),
-                            ("Bearbeiten", () => OpenVideoEditor(saved, false)));
-                    }
+                    toast.Update("Video gespeichert", Path.GetFileName(file), () => OpenFolder(file, true), 6,
+                        ("Ordner öffnen", () => OpenFolder(file, true)),
+                        ("Im Studio bearbeiten", () => OpenStudio(project)));
                     break;
                 case AfterCapture.Upload:
-                    await UploadFileAsync(path);
+                    await UploadFileAsync(file, thumb);
                     break;
             }
         }
 
-        public void OpenVideoEditor(string path, bool isTempRecording)
+        public void OpenStudio(StudioProject project)
         {
-            var w = new VideoEditorWindow(path, isTempRecording);
+            if (!FFmpeg.IsAvailable && !EnsureFfmpegAsync(null).Result) return;
+            var w = new StudioWindow(project);
             w.Show();
             w.Activate();
+        }
+
+        /// <summary>Unvollständige Aufnahmen (z. B. nach einem Absturz) finden und Wiederherstellung anbieten.</summary>
+        void CheckCrashRecovery()
+        {
+            try
+            {
+                if (!Directory.Exists(StudioProject.ProjectsRoot)) return;
+                foreach (var dir in Directory.GetDirectories(StudioProject.ProjectsRoot))
+                {
+                    string metaFile = Path.Combine(dir, "meta.json");
+                    if (!File.Exists(metaFile) || !File.Exists(Path.Combine(dir, "screen.mkv"))) continue;
+                    var meta = System.Text.Json.JsonSerializer.Deserialize<RecordingMeta>(File.ReadAllText(metaFile), AppSettings.Json);
+                    if (meta == null || meta.Complete || meta.Duration < 1) continue;
+                    string d = dir;
+                    Toast.Notify("Unterbrochene Aufnahme gefunden",
+                        $"{Path.GetFileName(d)} · {RecordingSession.Format(TimeSpan.FromSeconds(meta.Duration))} – wiederherstellen?", null, null, 0,
+                        ("Wiederherstellen", () =>
+                        {
+                            meta.Complete = true;
+                            meta.HasSystemAudio = File.Exists(Path.Combine(d, "system.wav"));
+                            meta.HasMic = File.Exists(Path.Combine(d, "mic.wav"));
+                            StudioProject.SaveMeta(d, meta);
+                            OpenStudio(StudioProject.Load(d));
+                        }),
+                        ("Verwerfen", () => { try { Directory.Delete(d, true); } catch { } }));
+                    break; // eine Meldung reicht
+                }
+            }
+            catch { }
         }
 
         public void HandleCapture(BitmapSource img, AfterCapture action)
@@ -357,7 +511,7 @@ namespace SnipSnip
             var dlg = new OpenFileDialog
             {
                 Title = "Bild oder Video öffnen",
-                Filter = "Bilder und Videos|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v" +
+                Filter = "Bilder, Videos und Projekte|meta.json;*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v" +
                          "|Bilder|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp|Videos|*.mp4;*.mov;*.mkv;*.webm;*.avi;*.wmv;*.m4v|Alle Dateien|*.*"
             };
             if (dlg.ShowDialog(owner) != true) return;
@@ -369,13 +523,29 @@ namespace SnipSnip
         {
             try
             {
-                if (IsVideoFile(path)) OpenVideoEditor(path, isTempRecording: false);
+                if (Directory.Exists(path) && File.Exists(Path.Combine(path, "meta.json"))) OpenStudio(StudioProject.Load(path));
+                else if (Path.GetFileName(path).Equals("meta.json", StringComparison.OrdinalIgnoreCase)) OpenStudio(StudioProject.Load(Path.GetDirectoryName(path)!));
+                else if (Path.GetFileName(path).Equals("project.json", StringComparison.OrdinalIgnoreCase)) OpenStudio(StudioProject.Load(Path.GetDirectoryName(path)!));
+                else if (IsVideoFile(path)) _ = ImportVideoAsync(path);
                 else if (ImageUtil.IsImageFile(path)) OpenEditor(ImageUtil.Load(path));
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Die Datei konnte nicht geöffnet werden:\n" + ex.Message, "SnipSnip");
             }
+        }
+
+        /// <summary>Vorhandenes Video als Studio-Projekt importieren.</summary>
+        async Task ImportVideoAsync(string path)
+        {
+            if (!FFmpeg.IsAvailable && !await EnsureFfmpegAsync(null)) return;
+            var info = await FFmpeg.ProbeAsync(path);
+            if (info.Width <= 0 || info.Duration <= TimeSpan.Zero)
+            {
+                MessageBox.Show("Das Video konnte nicht gelesen werden.", "SnipSnip");
+                return;
+            }
+            OpenStudio(StudioProject.Import(path, info));
         }
 
         public static void OpenFolder(string path, bool selectFile = false)

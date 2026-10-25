@@ -41,6 +41,10 @@ namespace SnipSnip
             DelayBtn.Visibility = DelaySep.Visibility = video ? Visibility.Collapsed : Visibility.Visible;
             SysAudioToggle.IsChecked = App.Settings.RecordSystemAudio;
             MicToggle.IsChecked = App.Settings.RecordMicrophone;
+            CamToggle.IsChecked = App.Settings.RecordWebcam;
+            CamToggle.ToolTip = string.IsNullOrEmpty(App.Settings.WebcamDevice)
+                ? "Webcam aufnehmen (Kamera in den Einstellungen wählen)"
+                : $"Webcam aufnehmen: {App.Settings.WebcamDevice}";
             ModeRect.ToolTip = video ? "Bereich aufnehmen  (1)" : "Rechteck  (1)";
             ModeWindow.ToolTip = video ? "Fensterbereich aufnehmen  (2)" : "Fenster  (2)";
             ModeFull.ToolTip = video ? "Ganzen Monitor aufnehmen  (4)" : "Vollbild / Monitor  (4)";
@@ -92,6 +96,26 @@ namespace SnipSnip
         {
             App.Settings.RecordSystemAudio = SysAudioToggle.IsChecked == true;
             App.Settings.RecordMicrophone = MicToggle.IsChecked == true;
+            App.Settings.RecordWebcam = CamToggle.IsChecked == true;
+            if (sender == CamToggle && App.Settings.RecordWebcam && string.IsNullOrEmpty(App.Settings.WebcamDevice))
+                _ = PickFirstWebcamAsync();
+        }
+
+        /// <summary>Ist noch keine Kamera gewählt, die erste gefundene nehmen.</summary>
+        async System.Threading.Tasks.Task PickFirstWebcamAsync()
+        {
+            var list = await WebcamCapture.ListDevicesAsync();
+            if (list.Count > 0)
+            {
+                App.Settings.WebcamDevice = list[0];
+                CamToggle.ToolTip = $"Webcam aufnehmen: {list[0]}";
+            }
+            else
+            {
+                App.Settings.RecordWebcam = false;
+                CamToggle.IsChecked = false;
+                CamToggle.ToolTip = "Keine Webcam gefunden";
+            }
         }
 
         void Act_Checked(object sender, RoutedEventArgs e)

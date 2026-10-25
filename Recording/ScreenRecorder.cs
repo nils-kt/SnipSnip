@@ -24,31 +24,37 @@ namespace SnipSnip
     }
 
     /// <summary>
-    /// Nimmt einen Bildschirmbereich auf: Bilder per GDI → ffmpeg (stdin, H.264),
-    /// System-Ton und Mikrofon per WASAPI → WAV; am Ende wird alles zu einer MP4 zusammengeführt.
+    /// Nimmt einen Bildschirmbereich als Studio-Projekt auf (wie Screen Studio):
+    /// Bild ohne Cursor per GDI → FFmpeg (screen.mkv, absturzsicher), Cursor/Klicks/Tasten getrennt (events.jsonl),
+    /// System-Ton und Mikrofon als eigene WAV-Spuren, optional Webcam. Alles wird alle 2 s auf die Platte geschrieben.
     /// </summary>
     internal sealed class ScreenRecorder
     {
         readonly int x, y, w, h, fps;
-        readonly string dir, videoPath;
+        readonly string dir;
         readonly RecordingClock clock = new();
         readonly List<AudioTrack> audio = new();
         readonly Queue<string> ffmpegLog = new();
+        readonly RecordingMeta meta;
+        readonly WebcamCapture? webcam;
+        InputTracker? input;
         Process? ffmpeg;
         Thread? thread;
         volatile bool running;
         Exception? failure;
+        readonly Stopwatch pauseWatch = new();
+        System.Threading.Timer? flushTimer;
 
         public TimeSpan Elapsed => clock.Elapsed;
         public bool IsPaused => clock.IsPaused;
-        public bool HasFailed => failure != null;
         public int Width => w;
         public int Height => h;
+        public string ProjectDir => dir;
 
         /// <summary>Wird (auf einem Hintergrund-Thread) ausgelöst, wenn die Aufnahme abbricht.</summary>
         public event Action<Exception>? Failed;
 
-        public ScreenRecorder(Rect physicalRegion)
+        public ScreenRecorder(Rect physicalRegion, string projectDir, WebcamCapture? webcam)
         {
             x = (int)Math.Round(physicalRegion.X);
             y = (int)Math.Round(physicalRegion.Y);
@@ -56,9 +62,9 @@ namespace SnipSnip
             w = Math.Max(2, (int)Math.Round(physicalRegion.Width) & ~1);
             h = Math.Max(2, (int)Math.Round(physicalRegion.Height) & ~1);
             fps = Math.Clamp(App.Settings.VideoFps, 5, 60);
-            dir = Path.Combine(Path.GetTempPath(), "SnipSnip", $"rec_{DateTime.Now:yyyyMMdd_HHmmss_fff}");
-            Directory.CreateDirectory(dir);
-            videoPath = Path.Combine(dir, "video.mp4");
+            dir = projectDir;
+            this.webcam = webcam;
+            meta = new RecordingMeta { Width = w, Height = h, Fps = fps, RegionX = x, RegionY = y, HasCursor = true };
         }
 
         public void Start()
@@ -68,8 +74,9 @@ namespace SnipSnip
             {
                 "-y", "-f", "rawvideo", "-pix_fmt", "bgr0", "-video_size", $"{w}x{h}", "-framerate", fps.ToString(), "-i", "-"
             };
-            args.AddRange(VideoEncoder.Args(s.VideoCrf, realtime: true));
-            args.AddRange(new[] { "-pix_fmt", "yuv420p", videoPath });
+            // hohe Qualität (wird später gezoomt) und häufige Keyframes für schnelles Springen im Editor
+            args.AddRange(VideoEncoder.Args(Math.Min(s.VideoCrf, 18), realtime: true));
+            args.AddRange(new[] { "-g", fps.ToString(), "-pix_fmt", "yuv420p", Path.Combine(dir, "screen.mkv") });
             ffmpeg = FFmpeg.Start(args, redirectStdin: true);
             _ = Task.Run(async () =>
             {
@@ -79,27 +86,71 @@ namespace SnipSnip
             });
             _ = ffmpeg.StandardOutput.ReadToEndAsync();
 
-            if (s.RecordSystemAudio) TryAddAudio(true);
-            if (s.RecordMicrophone) TryAddAudio(false);
+            if (s.RecordSystemAudio) meta.HasSystemAudio = TryAddAudio(true);
+            if (s.RecordMicrophone) meta.HasMic = TryAddAudio(false);
+            if (webcam != null && webcam.StartEpoch > 0)
+            {
+                meta.Webcam = Path.GetFileName(webcam.Path);
+                meta.WebcamStartEpoch = webcam.StartEpoch;
+            }
 
+            input = new InputTracker(clock, x, y, dir, s.RecordAllKeys);
             running = true;
+            meta.StartEpoch = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() / 1000.0;
             clock.Start();
             foreach (var a in audio) a.Start();
+            input.Start();
+            StudioProject.SaveMeta(dir, meta);
+
             thread = new Thread(CaptureLoop) { IsBackground = true, Name = "SnipSnip.Recorder", Priority = ThreadPriority.AboveNormal };
             thread.Start();
+            flushTimer = new System.Threading.Timer(_ => Flush(), null, 2000, 2000);
         }
 
-        void TryAddAudio(bool loopback)
+        bool TryAddAudio(bool loopback)
         {
-            try { audio.Add(new AudioTrack(loopback, Path.Combine(dir, loopback ? "system.wav" : "mic.wav"), clock)); }
-            catch (Exception ex) { Debug.WriteLine($"Audio ({(loopback ? "System" : "Mikrofon")}) nicht verfügbar: {ex.Message}"); }
+            try
+            {
+                audio.Add(new AudioTrack(loopback, Path.Combine(dir, loopback ? "system.wav" : "mic.wav"), clock));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"Audio ({(loopback ? "System" : "Mikrofon")}) nicht verfügbar: {ex.Message}");
+                return false;
+            }
         }
 
-        public void Pause() { if (!clock.IsPaused) clock.Pause(); }
+        /// <summary>Alle 2 s: Ton-Header und Metadaten aktualisieren (Absturzsicherung).</summary>
+        void Flush()
+        {
+            try
+            {
+                foreach (var a in audio) a.Flush();
+                lock (meta)
+                {
+                    meta.Duration = clock.Elapsed.TotalSeconds;
+                    StudioProject.SaveMeta(dir, meta);
+                }
+            }
+            catch { }
+        }
 
-        public void Resume() { if (clock.IsPaused) clock.Resume(); }
+        public void Pause()
+        {
+            if (clock.IsPaused) return;
+            clock.Pause();
+            pauseWatch.Restart();
+        }
 
-        // ------------------------------------------------------------------ Bild-Schleife
+        public void Resume()
+        {
+            if (!clock.IsPaused) return;
+            lock (meta) meta.Pauses.Add(new PauseInfo { At = clock.Elapsed.TotalSeconds, Duration = pauseWatch.Elapsed.TotalSeconds });
+            clock.Resume();
+        }
+
+        // ------------------------------------------------------------------ Bild-Schleife (ohne Cursor)
 
         void CaptureLoop()
         {
@@ -117,10 +168,6 @@ namespace SnipSnip
             IntPtr dib = Win.CreateDIBSection(memDc, ref bi, 0, out IntPtr bits, IntPtr.Zero, 0);
             IntPtr old = Gdi.SelectObject(memDc, dib);
             var buf = new byte[w * h * 4];
-            var cursorCache = new Dictionary<IntPtr, (int X, int Y)>();
-            bool showCursor = App.Settings.VideoShowCursor, clicks = App.Settings.VideoHighlightClicks;
-            IntPtr clickPen = Win.CreatePen(0, Math.Max(3, h / 300), 0x0030C8FF); // BGR: Gelb-Orange
-            IntPtr nullBrush = Win.GetStockObject(5);
 
             try
             {
@@ -133,20 +180,17 @@ namespace SnipSnip
                     double due = n * interval, now = clock.Elapsed.TotalSeconds;
                     if (now < due)
                     {
-                        int ms = (int)((due - now) * 1000);
-                        Thread.Sleep(Math.Max(1, ms));
+                        Thread.Sleep(Math.Max(1, (int)((due - now) * 1000)));
                         continue;
                     }
 
                     Gdi.BitBlt(memDc, 0, 0, w, h, screenDc, x, y, Gdi.SRCCOPY);
-                    if (showCursor || clicks) DrawCursor(memDc, cursorCache, showCursor, clicks, clickPen, nullBrush);
                     Win.GdiFlush();
                     Marshal.Copy(bits, buf, 0, buf.Length);
                     stdin.Write(buf, 0, buf.Length);
                     n++;
 
-                    // Hinkt die Aufnahme hinterher (z. B. weil der Encoder bremst), Bilder doppeln,
-                    // damit Video- und Tonlänge exakt zusammenpassen.
+                    // Hinkt die Aufnahme hinterher, Bilder doppeln, damit Bild, Ton und Cursor-Zeit exakt passen.
                     int dup = 0;
                     while (running && !clock.IsPaused && clock.Elapsed.TotalSeconds >= (n + 1) * interval && dup++ < fps)
                     {
@@ -169,40 +213,10 @@ namespace SnipSnip
             {
                 Gdi.SelectObject(memDc, old);
                 Gdi.DeleteObject(dib);
-                Gdi.DeleteObject(clickPen);
                 Gdi.DeleteDC(memDc);
                 Gdi.ReleaseDC(IntPtr.Zero, screenDc);
                 Win.timeEndPeriod(1);
             }
-        }
-
-        void DrawCursor(IntPtr dc, Dictionary<IntPtr, (int X, int Y)> cache, bool cursor, bool clicks, IntPtr pen, IntPtr brush)
-        {
-            var ci = new Win.CURSORINFO { cbSize = Marshal.SizeOf<Win.CURSORINFO>() };
-            if (!Win.GetCursorInfo(ref ci)) return;
-            int cx = ci.ptScreenPos.X - x, cy = ci.ptScreenPos.Y - y;
-
-            if (clicks && ((Win.GetAsyncKeyState(0x01) & 0x8000) != 0 || (Win.GetAsyncKeyState(0x02) & 0x8000) != 0))
-            {
-                int r = Math.Max(14, h / 45);
-                IntPtr op = Gdi.SelectObject(dc, pen), ob = Gdi.SelectObject(dc, brush);
-                Win.Ellipse(dc, cx - r, cy - r, cx + r, cy + r);
-                Gdi.SelectObject(dc, op);
-                Gdi.SelectObject(dc, ob);
-            }
-
-            if (!cursor || (ci.flags & 1) == 0 || ci.hCursor == IntPtr.Zero) return;
-            if (!cache.TryGetValue(ci.hCursor, out var hot))
-            {
-                if (Win.GetIconInfo(ci.hCursor, out var ii))
-                {
-                    hot = (ii.xHotspot, ii.yHotspot);
-                    if (ii.hbmMask != IntPtr.Zero) Gdi.DeleteObject(ii.hbmMask);
-                    if (ii.hbmColor != IntPtr.Zero) Gdi.DeleteObject(ii.hbmColor);
-                }
-                cache[ci.hCursor] = hot;
-            }
-            Win.DrawIconEx(dc, cx - hot.X, cy - hot.Y, ci.hCursor, 0, 0, 0, IntPtr.Zero, 3);
         }
 
         string FfmpegTail()
@@ -212,13 +226,17 @@ namespace SnipSnip
 
         // ------------------------------------------------------------------ Stoppen
 
-        /// <summary>Beendet die Aufnahme und liefert den Pfad der fertigen MP4.</summary>
+        /// <summary>Beendet die Aufnahme und liefert den Projektordner.</summary>
         public async Task<string> StopAsync()
         {
+            if (clock.IsPaused) Resume();
             running = false;
+            flushTimer?.Dispose();
             await Task.Run(() => thread?.Join());
             var duration = clock.Elapsed;
+            input?.Stop();
             foreach (var a in audio) await a.StopAsync(duration);
+            if (webcam != null) await webcam.StopAsync();
 
             if (ffmpeg != null)
             {
@@ -229,52 +247,38 @@ namespace SnipSnip
                     try { ffmpeg.Kill(true); } catch { }
                     throw new Exception("FFmpeg reagiert nicht mehr.");
                 }
-                if (ffmpeg.ExitCode != 0 || !File.Exists(videoPath))
+                if (ffmpeg.ExitCode != 0 || !File.Exists(Path.Combine(dir, "screen.mkv")))
                     throw failure ?? new Exception("Die Videodatei konnte nicht erstellt werden.\n" + FfmpegTail());
             }
             if (failure != null) throw failure;
 
-            string final = Path.Combine(dir, $"SnipSnip_{DateTime.Now:yyyy-MM-dd_HH-mm-ss}.mp4");
-            var tracks = audio.Where(a => a.HasData).ToList();
-            if (tracks.Count == 0)
+            lock (meta)
             {
-                // nur noch "faststart" setzen (Stream-Copy, sehr schnell)
-                await FFmpeg.RunAsync(new[] { "-i", videoPath, "-c", "copy", "-movflags", "+faststart", final });
+                meta.Duration = duration.TotalSeconds;
+                meta.HasSystemAudio &= audio.Any(a => a.Path.EndsWith("system.wav") && a.HasData);
+                meta.HasMic &= audio.Any(a => a.Path.EndsWith("mic.wav") && a.HasData);
+                if (meta.Webcam != null && !File.Exists(Path.Combine(dir, meta.Webcam))) meta.Webcam = null;
+                meta.Complete = true;
+                StudioProject.SaveMeta(dir, meta);
             }
-            else
-            {
-                var args = new List<string> { "-i", videoPath };
-                foreach (var t in tracks) { args.Add("-i"); args.Add(t.Path); }
-                if (tracks.Count == 1)
-                    args.AddRange(new[] { "-map", "0:v", "-map", "1:a" });
-                else
-                    args.AddRange(new[] { "-filter_complex", "[1:a][2:a]amix=inputs=2:duration=longest:normalize=0[a]", "-map", "0:v", "-map", "[a]" });
-                args.AddRange(new[] { "-c:v", "copy", "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", final });
-                await FFmpeg.RunAsync(args);
-            }
-
-            TryDelete(videoPath);
-            foreach (var t in audio) TryDelete(t.Path);
-            return final;
+            return dir;
         }
 
-        /// <summary>Bricht ab und löscht alle Zwischendateien.</summary>
+        /// <summary>Bricht ab und löscht das Projekt.</summary>
         public async Task DiscardAsync()
         {
             running = false;
+            flushTimer?.Dispose();
             await Task.Run(() => thread?.Join());
+            try { input?.Stop(); } catch { }
             foreach (var a in audio) await a.StopAsync(clock.Elapsed);
+            if (webcam != null) await webcam.StopAsync();
             try { ffmpeg?.Kill(true); } catch { }
-            await Task.Delay(200);
+            await Task.Delay(300);
             try { Directory.Delete(dir, true); } catch { }
         }
 
-        static void TryDelete(string p)
-        {
-            try { File.Delete(p); } catch { }
-        }
-
-        /// <summary>Löscht alte Aufnahmen aus dem Temp-Ordner (älter als 2 Tage).</summary>
+        /// <summary>Löscht alte Export-Zwischendateien aus dem Temp-Ordner (älter als 2 Tage).</summary>
         public static void CleanupOldTemp()
         {
             try
@@ -325,6 +329,12 @@ namespace SnipSnip
         }
 
         public void Start() => capture.StartRecording();
+
+        /// <summary>WAV-Header aktualisieren, damit die Datei nach einem Absturz lesbar bleibt.</summary>
+        public void Flush()
+        {
+            lock (gate) { if (!closed) writer.Flush(); }
+        }
 
         long BytesFor(TimeSpan t)
         {
