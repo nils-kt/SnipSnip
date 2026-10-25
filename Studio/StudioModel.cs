@@ -46,7 +46,13 @@ namespace SnipSnip
 
     public enum BackgroundKind { Gradient, Solid, Image, Wallpaper }
     public enum ZoomType { Classic, Loupe }
-    public enum ClickEffect { None, Circle, Ripple }
+    public enum ClickEffect { None, Circle, Ripple, Pulse, Burst, Focus }
+    public enum CursorStyle { Original, MacOS, Windows, Modern, Colored, Dot, Ring, Touch }
+    public enum CutTransition { None, Fade, Flash, Blur }
+    public enum WindowChrome { None, MacLight, MacDark, Windows, Browser }
+    public enum KeysPosition { Bottom, Top, BottomLeft, BottomRight }
+    public enum TextStyle { Title, Subtitle, Callout, LowerThird }
+    public enum TextPosition { Top, Center, Bottom }
     public enum CamLayout { ScreenOnly, Overlay, Split, CameraOnly }
     public enum CamCorner { BottomRight, BottomLeft, TopRight, TopLeft }
     public enum CamShape { Circle, Rounded, Square }
@@ -91,6 +97,18 @@ namespace SnipSnip
         public ClickEffect ClickEffect { get; set; } = ClickEffect.Ripple;
         public bool ClickSound { get; set; }
         public bool LoopCursor { get; set; }
+        public CursorStyle CursorStyle { get; set; } = CursorStyle.Original;
+        /// <summary>Farbe für farbige Cursor-Stile, Leuchtkreis und Scheinwerfer-Rand.</summary>
+        public string CursorColor { get; set; } = "#FF4F8CFF";
+        public string ClickColor { get; set; } = "#FFFFFFFF";
+        /// <summary>Weicher Leuchtkreis hinter dem Cursor.</summary>
+        public bool CursorHighlight { get; set; }
+        /// <summary>Cursor neigt sich leicht in Bewegungsrichtung.</summary>
+        public bool CursorTilt { get; set; }
+        /// <summary>Scheinwerfer: alles außer der Umgebung des Cursors abdunkeln.</summary>
+        public bool Spotlight { get; set; }
+        public double SpotlightSize { get; set; } = 16;
+        public double SpotlightDim { get; set; } = 0.55;
 
         // Webcam
         public CamLayout Layout { get; set; } = CamLayout.Overlay;
@@ -110,6 +128,38 @@ namespace SnipSnip
         // Tastatur
         public bool ShowKeys { get; set; } = true;
         public bool SpeedUpTyping { get; set; }
+        public KeysPosition KeysPosition { get; set; } = KeysPosition.Bottom;
+        public double KeysSize { get; set; } = 1;
+        public bool KeysLight { get; set; }
+
+        // Fensterrahmen & Rand
+        public WindowChrome Chrome { get; set; } = WindowChrome.None;
+        public string ChromeTitle { get; set; } = "";
+        public double BorderWidth { get; set; }
+        public string BorderColor { get; set; } = "#55FFFFFF";
+
+        // Effekte
+        public double FadeIn { get; set; }
+        public double FadeOut { get; set; }
+        public CutTransition CutTransition { get; set; } = CutTransition.None;
+        public double Brightness { get; set; }
+        public double Contrast { get; set; }
+        public double Saturation { get; set; }
+        public double Warmth { get; set; }
+        public double Vignette { get; set; }
+        public double Grain { get; set; }
+        /// <summary>3D-Neigung in Grad (um die senkrechte bzw. waagerechte Achse).</summary>
+        public double TiltY { get; set; }
+        public double TiltX { get; set; }
+        /// <summary>0 = Hintergrund zoomt mit, 1 = Hintergrund steht still.</summary>
+        public double Parallax { get; set; }
+        public bool ProgressBar { get; set; }
+        /// <summary>Akzentfarbe für Fortschrittsbalken, Hinweise und Bauchbinden.</summary>
+        public string AccentColor { get; set; } = "#FF4F8CFF";
+        public string? WatermarkPath { get; set; }
+        public double WatermarkOpacity { get; set; } = 0.85;
+        public double WatermarkSize { get; set; } = 12;
+        public CamCorner WatermarkCorner { get; set; } = CamCorner.TopRight;
 
         // Ton
         public double SystemVolume { get; set; } = 1.0;
@@ -118,6 +168,8 @@ namespace SnipSnip
         public bool Normalize { get; set; } = true;
         public string? MusicPath { get; set; }
         public double MusicVolume { get; set; } = 0.15;
+        /// <summary>Musik leiser, sobald gesprochen wird.</summary>
+        public bool MusicDucking { get; set; } = true;
 
         public StudioStyle Clone() => JsonSerializer.Deserialize<StudioStyle>(JsonSerializer.Serialize(this, AppSettings.Json), AppSettings.Json)!;
     }
@@ -130,6 +182,8 @@ namespace SnipSnip
         public double Speed { get; set; } = 1;
         /// <summary>Automatisch erzeugte Beschleunigung (Tipp-Phase).</summary>
         public bool AutoSpeed { get; set; }
+        /// <summary>Automatisch erzeugte Beschleunigung (Leerlauf).</summary>
+        public bool AutoIdle { get; set; }
         public ClipSegment Clone() => (ClipSegment)MemberwiseClone();
     }
 
@@ -157,7 +211,63 @@ namespace SnipSnip
         public double Y { get; set; } = 0.35;
         public double W { get; set; } = 0.3;
         public double H { get; set; } = 0.12;
-        public MaskSegment Clone() => (MaskSegment)MemberwiseClone();
+        public MaskMotion Motion { get; set; } = MaskMotion.Fixed;
+        /// <summary>Position über die Zeit (Aufnahmezeit) – aus der Verfolgung oder manuell gesetzt. Leer = fest.</summary>
+        public List<MaskKey> Keys { get; set; } = new();
+
+        public MaskSegment Clone()
+        {
+            var c = (MaskSegment)MemberwiseClone();
+            c.Keys = Keys.Select(k => k with { }).ToList();
+            return c;
+        }
+
+        /// <summary>Rechteck zur Aufnahmezeit t (zwischen zwei Positionen interpoliert).</summary>
+        public (double X, double Y, double W, double H) RectAt(double t)
+        {
+            if (Motion == MaskMotion.Fixed || Keys.Count == 0) return (X, Y, W, H);
+            if (t <= Keys[0].T) return Keys[0].Rect;
+            var last = Keys[^1];
+            if (t >= last.T) return last.Rect;
+            int lo = 0, hi = Keys.Count - 1;
+            while (hi - lo > 1)
+            {
+                int mid = (lo + hi) / 2;
+                if (Keys[mid].T <= t) lo = mid; else hi = mid;
+            }
+            var a = Keys[lo];
+            var b = Keys[hi];
+            double f = (t - a.T) / Math.Max(1e-6, b.T - a.T);
+            // Keyframes weich ineinander überblenden; die dichte Verfolgung linear
+            if (Motion == MaskMotion.Keyframes) f = f * f * (3 - 2 * f);
+            return (a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f, a.W + (b.W - a.W) * f, a.H + (b.H - a.H) * f);
+        }
+
+        /// <summary>Setzt die Position zur Zeit t (ersetzt eine Position in unmittelbarer Nähe).</summary>
+        public void SetKey(double t, double x, double y, double w, double h)
+        {
+            Keys.RemoveAll(k => Math.Abs(k.T - t) < 0.04);
+            Keys.Add(new MaskKey(t, x, y, w, h));
+            Keys.Sort((a, b) => a.T.CompareTo(b.T));
+        }
+    }
+
+    public enum MaskMotion { Fixed, Track, Keyframes }
+
+    public sealed record MaskKey(double T, double X, double Y, double W, double H)
+    {
+        [JsonIgnore] public (double X, double Y, double W, double H) Rect => (X, Y, W, H);
+    }
+
+    public sealed class TextSegment
+    {
+        public double Start { get; set; }
+        public double End { get; set; }
+        public string Text { get; set; } = "Titel";
+        public TextStyle Style { get; set; } = TextStyle.Title;
+        public TextPosition Position { get; set; } = TextPosition.Center;
+        public double Size { get; set; } = 1;
+        public TextSegment Clone() => (TextSegment)MemberwiseClone();
     }
 
     public sealed class LayoutSegment
@@ -175,6 +285,7 @@ namespace SnipSnip
         public List<ZoomSegment> Zooms { get; set; } = new();
         public List<MaskSegment> Masks { get; set; } = new();
         public List<LayoutSegment> Layouts { get; set; } = new();
+        public List<TextSegment> Texts { get; set; } = new();
         /// <summary>Zuschnitt relativ (0..1).</summary>
         public double CropX { get; set; }
         public double CropY { get; set; }
@@ -200,6 +311,33 @@ namespace SnipSnip
         public string? MicAudio => Meta.HasMic ? System.IO.Path.Combine(Dir, "mic.wav") : null;
         public string? WebcamFile => Meta.Webcam != null ? System.IO.Path.Combine(Dir, Meta.Webcam) : null;
         public bool HasWebcam => WebcamFile != null && File.Exists(WebcamFile);
+
+        float[]? speech;
+        /// <summary>Sprache im Mikrofon mit 10 Hz (1 = Sprache, 0 = Stille); leer ohne Mikrofon.</summary>
+        public float[] Speech => speech ??= LoadSpeech();
+
+        float[] LoadSpeech()
+        {
+            if (MicAudio == null || !File.Exists(MicAudio)) return Array.Empty<float>();
+            try
+            {
+                using var wr = new NAudio.Wave.WaveFileReader(MicAudio);
+                var r = NAudio.Wave.WaveExtensionMethods.ToSampleProvider(wr);
+                int block = r.WaveFormat.SampleRate * r.WaveFormat.Channels / 10;
+                var buf = new float[block];
+                var env = new List<float>();
+                int n;
+                while ((n = r.Read(buf, 0, block)) > 0)
+                {
+                    double sum = 0;
+                    for (int i = 0; i < n; i++) sum += buf[i] * buf[i];
+                    double db = 10 * Math.Log10(sum / Math.Max(1, n) + 1e-12);
+                    env.Add(db > -42 ? 1 : 0);
+                }
+                return env.ToArray();
+            }
+            catch { return Array.Empty<float>(); }
+        }
 
         StudioProject(string dir) => Dir = dir;
 
@@ -291,6 +429,58 @@ namespace SnipSnip
                     c.AutoSpeed = true;
                 }
             }
+        }
+
+        /// <summary>
+        /// Leerlauf (keine Maus, keine Klicks, keine Tasten, keine Sprache) ab <paramref name="minDuration"/> Sekunden
+        /// auf <paramref name="speed"/>× beschleunigen. Gibt die Zahl der beschleunigten Abschnitte zurück.
+        /// </summary>
+        public int ApplyIdleSpeedUp(double minDuration = 2.5, double speed = 4)
+        {
+            ResetIdleSpeedUp();
+            int n = (int)(Meta.Duration * 10) + 1;
+            var active = new bool[n];
+            void Mark(double t, double before, double after)
+            {
+                for (int i = Math.Max(0, (int)((t - before) * 10)); i <= Math.Min(n - 1, (int)((t + after) * 10)); i++) active[i] = true;
+            }
+            if (Input.HasCursor)
+                for (int i = 0; i < n; i++)
+                {
+                    double t = i / 10.0;
+                    if (t - Input.LastMoveBefore(t) < 0.3) Mark(t, 0.4, 0.4);
+                }
+            foreach (var t in Input.Clicks) Mark(t, 0.6, 1.0);
+            foreach (var k in Input.Keys) Mark(k.T, 0.4, 0.8);
+            var sp = Speech;
+            for (int i = 0; i < sp.Length && i < n; i++) if (sp[i] > 0) Mark(i / 10.0, 0.3, 0.5);
+
+            int count = 0;
+            for (int i = 0; i < n;)
+            {
+                if (active[i]) { i++; continue; }
+                int j = i;
+                while (j + 1 < n && !active[j + 1]) j++;
+                double s = i / 10.0 + 0.3, e = Math.Min(Meta.Duration, (j + 1) / 10.0) - 0.3;
+                if (e - s >= minDuration)
+                {
+                    SplitClipAt(s);
+                    SplitClipAt(e);
+                    foreach (var c in Edits.Clips.Where(c => c.Start >= s - 1e-6 && c.End <= e + 1e-6 && !c.Removed && !c.AutoSpeed && Math.Abs(c.Speed - 1) < 0.01))
+                    {
+                        c.Speed = speed;
+                        c.AutoIdle = true;
+                    }
+                    count++;
+                }
+                i = j + 1;
+            }
+            return count;
+        }
+
+        public void ResetIdleSpeedUp()
+        {
+            foreach (var c in Edits.Clips.Where(c => c.AutoIdle)) { c.Speed = 1; c.AutoIdle = false; }
         }
 
         public int SplitClipAt(double t)

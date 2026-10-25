@@ -31,6 +31,14 @@ namespace SnipSnip
         DateTime lastUndoAt;
         string tab = "background";
         bool pickFocus;
+        // Maske in der Vorschau ziehen (Maus wird auf dem Overlay festgehalten – die Rahmen selbst werden neu aufgebaut)
+        MaskSegment? dragMask;
+        bool dragResize, dragMoved;
+        Point dragStart;
+        (double X, double Y, double W, double H) dragBase;
+        double dragT;
+        CancellationTokenSource? trackCts;
+        string? trackStatus;
         CancellationTokenSource? exportCts;
         static readonly Dictionary<string, BitmapSource> TileCache = new();
 
@@ -57,6 +65,9 @@ namespace SnipSnip
             saveTimer.Tick += (_, _) => { saveTimer.Stop(); SaveNow(); };
             PreviewHost.SizeChanged += (_, _) => UpdateOverlay();
             PreviewOverlay.MouseLeftButtonDown += Overlay_MouseDown;
+            PreviewOverlay.MouseMove += Overlay_MouseMove;
+            PreviewOverlay.MouseLeftButtonUp += (_, _) => EndMaskDrag();
+            PreviewOverlay.LostMouseCapture += (_, _) => EndMaskDrag();
             Drop += (_, e) =>
             {
                 if (e.Data.GetData(DataFormats.FileDrop) is string[] files)
@@ -225,6 +236,7 @@ namespace SnipSnip
         {
             ("background", "IconImage", "Hintergrund"),
             ("frame", "IconFrame", "Rahmen & Zuschnitt"),
+            ("effects", "IconSparkle", "Effekte"),
             ("zoom", "IconZoom", "Kamera & Zoom"),
             ("cursor", "IconCursor", "Cursor"),
             ("webcam", "IconWebcam", "Webcam"),
@@ -261,6 +273,7 @@ namespace SnipSnip
             {
                 case "background": BuildBackground(); break;
                 case "frame": BuildFrame(); break;
+                case "effects": BuildEffects(); break;
                 case "zoom": BuildZoom(); break;
                 case "cursor": BuildCursor(); break;
                 case "webcam": BuildWebcam(); break;
@@ -354,7 +367,47 @@ namespace SnipSnip
             return b;
         }
 
+        static readonly string[] SwatchColors =
+            { "#FFFFFFFF", "#FF111114", "#FF4F8CFF", "#FF7C3AED", "#FFDB2777", "#FFEF4444", "#FFF97316", "#FFFACC15", "#FF22C55E", "#FF14B8A6" };
+
+        /// <summary>Farbauswahl: feste Farbfelder plus eigener Farbdialog.</summary>
+        void ColorRow(string label, string current, Action<string> set, Panel? host = null)
+        {
+            var target = host ?? Side;
+            target.Children.Add(new TextBlock { Text = label, Margin = new Thickness(0, 8, 0, 4) });
+            var wrap = new WrapPanel();
+            foreach (var hex in SwatchColors)
+            {
+                var col = (Color)ColorConverter.ConvertFromString(hex);
+                var b = new Button
+                {
+                    Width = 26,
+                    Height = 26,
+                    Margin = new Thickness(0, 0, 5, 5),
+                    Cursor = Cursors.Hand,
+                    Focusable = false,
+                    Template = SwatchTemplate(col, current.Equals(hex, StringComparison.OrdinalIgnoreCase))
+                };
+                b.Click += (_, _) => { Change(() => set(hex)); ShowTab(tab); };
+                wrap.Children.Add(b);
+            }
+            var custom = new Button { Style = (Style)FindResource("IconButton"), Tag = FindResource("IconPalette"), ToolTip = "Eigene Farbe …", Margin = new Thickness(0, 0, 0, 5) };
+            custom.Click += (_, _) =>
+            {
+                var sc = Backgrounds.Parse(current);
+                using var dlg = new WinForms.ColorDialog { FullOpen = true, Color = System.Drawing.Color.FromArgb(sc.Red, sc.Green, sc.Blue) };
+                if (dlg.ShowDialog() != WinForms.DialogResult.OK) return;
+                Change(() => set($"#FF{dlg.Color.R:X2}{dlg.Color.G:X2}{dlg.Color.B:X2}"));
+                ShowTab(tab);
+            };
+            wrap.Children.Add(custom);
+            target.Children.Add(wrap);
+        }
+
         static string Pct(double v) => $"{v:0} %";
+        static string Deg(double v) => $"{v:0}°";
+        static string Signed(double v) => $"{v * 100:+0;-0;0}";
+        static string Sec(double v) => v < 0.05 ? "Aus" : $"{v:0.0} s";
         static string X1(double v) => $"{v:0.0}×";
 
         // ---------------------------------------------------------------- Auswahl (Segment der Zeitleiste)
@@ -407,15 +460,76 @@ namespace SnipSnip
                     Title($"Maske  ·  {Fmt(m.Start)} – {Fmt(m.End)}");
                     Choice("Art", new[] { ("Weichzeichnen", MaskKind.Blur), ("Verpixeln", MaskKind.Pixelate), ("Abdecken", MaskKind.Fill), ("Hervorheben", MaskKind.Highlight) },
                         m.Kind, v => m.Kind = v, box);
+                    Choice("Bewegung", new[] { ("Fest", MaskMotion.Fixed), ("Mitbewegen", MaskMotion.Track), ("Keyframes", MaskMotion.Keyframes) },
+                        m.Motion, v => SetMaskMotion(m, v), box, rebuildTab: true);
+                    string help = m.Motion switch
+                    {
+                        MaskMotion.Track => "Die Maske folgt dem Inhalt darunter – z. B. einem Fenster, das verschoben wird. Läuft sie davon: an der Stelle anhalten und den Rahmen zurechtschieben, ab dort wird neu verfolgt.",
+                        MaskMotion.Keyframes => "An verschiedenen Stellen anhalten und den Rahmen verschieben oder die Größe ändern – dazwischen gleitet die Maske weich.",
+                        _ => "Den Rahmen in der Vorschau verschieben; die Ecke unten rechts ändert die Größe."
+                    };
+                    if (m.Motion == MaskMotion.Track)
+                        box.Children.Add(SideButton(trackCts != null ? "Verfolgung läuft …" : "Ab hier neu verfolgen", "IconSearch", () =>
+                        {
+                            PushUndo();
+                            StartTracking(m, p.SourceAt(player.OutTime), forwardOnly: false);
+                        }));
+                    if (m.Motion == MaskMotion.Keyframes)
+                    {
+                        var keyRow = new WrapPanel();
+                        keyRow.Children.Add(SideButton("Keyframe hier setzen", "IconStar", () => Change(() =>
+                        {
+                            double t = Math.Clamp(p.SourceAt(player.OutTime), m.Start, m.End);
+                            var r = m.RectAt(t);
+                            m.SetKey(t, r.X, r.Y, r.W, r.H);
+                        })));
+                        keyRow.Children.Add(SideButton("Keyframe hier löschen", "IconTrash", () =>
+                        {
+                            double t = p.SourceAt(player.OutTime);
+                            var k = m.Keys.OrderBy(q => Math.Abs(q.T - t)).FirstOrDefault();
+                            if (k != null && Math.Abs(k.T - t) < 0.3 && m.Keys.Count > 1) Change(() => m.Keys.Remove(k));
+                        }));
+                        box.Children.Add(keyRow);
+                    }
                     box.Children.Add(new TextBlock
                     {
-                        Text = "Den Rahmen in der Vorschau verschieben; die Ecke unten rechts ändert die Größe. „Abdecken“ füllt mit der Umgebungsfarbe, „Hervorheben“ dunkelt alles andere ab.",
+                        Text = help + " „Abdecken“ füllt mit der Umgebungsfarbe, „Hervorheben“ dunkelt alles andere ab.",
                         Foreground = (Brush)FindResource("FgDimBrush"),
                         FontSize = 12,
                         TextWrapping = TextWrapping.Wrap,
                         Margin = new Thickness(0, 6, 0, 0)
                     });
                     box.Children.Add(SideButton("Maske löschen", "IconTrash", () => Timeline.DeleteSelected()));
+                    break;
+                }
+                case TrackKind.Text when i < p.Edits.Texts.Count:
+                {
+                    var s = p.Edits.Texts[i];
+                    Title($"Text  ·  {Fmt(s.Start)} – {Fmt(s.End)}");
+                    var tb = new TextBox
+                    {
+                        Style = (Style)FindResource("DarkText"),
+                        Text = s.Text,
+                        AcceptsReturn = true,
+                        TextWrapping = TextWrapping.Wrap,
+                        MinHeight = 54,
+                        Margin = new Thickness(0, 8, 0, 0)
+                    };
+                    tb.TextChanged += (_, _) => Change(() => s.Text = tb.Text, "text-" + i);
+                    box.Children.Add(tb);
+                    Choice("Stil", new[] { ("Titel", TextStyle.Title), ("Untertitel", TextStyle.Subtitle), ("Hinweis", TextStyle.Callout), ("Bauchbinde", TextStyle.LowerThird) },
+                        s.Style, v => s.Style = v, box);
+                    Choice("Position", new[] { ("Oben", TextPosition.Top), ("Mitte", TextPosition.Center), ("Unten", TextPosition.Bottom) }, s.Position, v => s.Position = v, box);
+                    SliderRow("Größe", 0.5, 2.5, s.Size, v => s.Size = v, X1, box);
+                    box.Children.Add(new TextBlock
+                    {
+                        Text = "Bauchbinde: erste Zeile ist der Name, weitere Zeilen die Beschreibung. Farbe von Hinweis und Bauchbinde: Effekte → Akzentfarbe.",
+                        Foreground = (Brush)FindResource("FgDimBrush"),
+                        FontSize = 12,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 6, 0, 0)
+                    });
+                    box.Children.Add(SideButton("Text löschen", "IconTrash", () => Timeline.DeleteSelected()));
                     break;
                 }
                 case TrackKind.Layout when i < p.Edits.Layouts.Count:
@@ -574,6 +688,20 @@ namespace SnipSnip
             SliderRow("Abstand", 0, 30, St.Padding, v => St.Padding = v, Pct);
             SliderRow("Inset (Innenrand)", 0, 10, St.Inset, v => St.Inset = v, Pct);
             SliderRow("Ecken", 0, 60, St.Radius, v => St.Radius = v, v => $"{v:0}");
+            SliderRow("Randlinie", 0, 8, St.BorderWidth, v => St.BorderWidth = v, v => v < 0.05 ? "Aus" : $"{v:0.0}");
+            if (St.BorderWidth > 0.05)
+                Choice("Farbe der Randlinie", new[] { ("Glas", "#55FFFFFF"), ("Weiß", "#FFFFFFFF"), ("Dunkel", "#80000000"), ("Akzent", St.AccentColor) },
+                    St.BorderColor, v => St.BorderColor = v);
+            Header("Fensterrahmen");
+            Choice(null, new[] { ("Keiner", WindowChrome.None), ("macOS hell", WindowChrome.MacLight), ("macOS dunkel", WindowChrome.MacDark), ("Windows", WindowChrome.Windows), ("Browser", WindowChrome.Browser) },
+                St.Chrome, v => St.Chrome = v, rebuildTab: true);
+            if (St.Chrome != WindowChrome.None)
+            {
+                Side.Children.Add(new TextBlock { Text = St.Chrome == WindowChrome.Browser ? "Adresse" : "Fenstertitel", Margin = new Thickness(0, 8, 0, 4) });
+                var title = new TextBox { Style = (Style)FindResource("DarkText"), Text = St.ChromeTitle };
+                title.TextChanged += (_, _) => Change(() => St.ChromeTitle = title.Text, "chrome-title");
+                Side.Children.Add(title);
+            }
             Header("Schatten");
             SliderRow("Deckkraft", 0, 100, St.ShadowOpacity * 100, v => St.ShadowOpacity = v / 100, Pct);
             SliderRow("Weichheit", 0, 100, St.ShadowBlur, v => St.ShadowBlur = v, v => $"{v:0}");
@@ -642,17 +770,41 @@ namespace SnipSnip
                 return;
             }
             Toggle("Cursor anzeigen", St.ShowCursor, v => St.ShowCursor = v);
+            Choice("Stil", new[]
+            {
+                ("Original", CursorStyle.Original), ("macOS", CursorStyle.MacOS), ("Windows", CursorStyle.Windows), ("Modern", CursorStyle.Modern),
+                ("Farbig", CursorStyle.Colored), ("Punkt", CursorStyle.Dot), ("Ring", CursorStyle.Ring), ("Touch", CursorStyle.Touch)
+            }, St.CursorStyle, v => St.CursorStyle = v, rebuildTab: true);
+            if (St.CursorStyle is CursorStyle.Colored or CursorStyle.Dot or CursorStyle.Ring || St.CursorHighlight || St.Spotlight)
+                ColorRow("Cursor-Farbe", St.CursorColor, v => St.CursorColor = v);
             SliderRow("Größe", 0.5, 4, St.CursorSize, v => St.CursorSize = v, X1);
             SliderRow("Glättung", 0, 1, St.CursorSmoothing, v => St.CursorSmoothing = v, v => $"{v * 100:0} %");
-            Toggle("Hochauflösender Cursor (bleibt beim Zoomen scharf)", St.HighResCursor, v => St.HighResCursor = v);
+            if (St.CursorStyle == CursorStyle.Original)
+                Toggle("Hochauflösender Cursor (bleibt beim Zoomen scharf)", St.HighResCursor, v => St.HighResCursor = v);
+            Toggle("Leuchtkreis hinter dem Cursor", St.CursorHighlight, v => St.CursorHighlight = v);
+            Toggle("In Bewegungsrichtung neigen", St.CursorTilt, v => St.CursorTilt = v);
             Toggle("Im Ruhezustand ausblenden", St.HideIdleCursor, v => St.HideIdleCursor = v);
             SliderRow("Ausblenden nach", 0.5, 8, St.IdleSeconds, v => St.IdleSeconds = v, v => $"{v:0.0} s");
             Toggle("Cursor-Loop (kehrt am Ende zum Start zurück)", St.LoopCursor, v => St.LoopCursor = v);
-            Header("Klicks");
-            Choice("Klick-Effekt", new[] { ("Keiner", ClickEffect.None), ("Kreis", ClickEffect.Circle), ("Welle", ClickEffect.Ripple) }, St.ClickEffect, v => St.ClickEffect = v);
-            Toggle("Klick-Geräusch im Export", St.ClickSound, v => St.ClickSound = v);
-        }
 
+            Header("Klicks");
+            Choice("Klick-Effekt", new[]
+            {
+                ("Keiner", ClickEffect.None), ("Kreis", ClickEffect.Circle), ("Welle", ClickEffect.Ripple),
+                ("Puls", ClickEffect.Pulse), ("Strahlen", ClickEffect.Burst), ("Fokus", ClickEffect.Focus)
+            }, St.ClickEffect, v => St.ClickEffect = v, rebuildTab: true);
+            if (St.ClickEffect != ClickEffect.None)
+                ColorRow("Klick-Farbe", St.ClickColor, v => St.ClickColor = v);
+            Toggle("Klick-Geräusch im Export", St.ClickSound, v => St.ClickSound = v);
+
+            Header("Scheinwerfer");
+            Toggle("Alles außer der Cursor-Umgebung abdunkeln", St.Spotlight, v => { St.Spotlight = v; Dispatcher.InvokeAsync(() => ShowTab(tab)); });
+            if (St.Spotlight)
+            {
+                SliderRow("Größe", 6, 40, St.SpotlightSize, v => St.SpotlightSize = v, Pct);
+                SliderRow("Abdunkeln", 10, 90, St.SpotlightDim * 100, v => St.SpotlightDim = v / 100, Pct);
+            }
+        }
         // ---------------------------------------------------------------- Webcam
 
         void BuildWebcam()
@@ -688,6 +840,10 @@ namespace SnipSnip
         {
             Header("Tastatur", true);
             Toggle("Tastenkürzel einblenden", St.ShowKeys, v => St.ShowKeys = v);
+            Choice("Position", new[] { ("Unten", KeysPosition.Bottom), ("Oben", KeysPosition.Top), ("Unten links", KeysPosition.BottomLeft), ("Unten rechts", KeysPosition.BottomRight) },
+                St.KeysPosition, v => St.KeysPosition = v);
+            Choice("Darstellung", new[] { ("Dunkel", false), ("Hell", true) }, St.KeysLight, v => St.KeysLight = v);
+            SliderRow("Größe", 0.6, 2, St.KeysSize, v => St.KeysSize = v, X1);
             Toggle("Lange Tipp-Phasen beschleunigen (3×)", St.SpeedUpTyping, v =>
             {
                 St.SpeedUpTyping = v;
@@ -722,8 +878,80 @@ namespace SnipSnip
             {
                 Side.Children.Add(SideButton("Musik entfernen", "IconTrash", () => { Change(() => St.MusicPath = null); ShowTab(tab); }));
                 SliderRow("Musik-Lautstärke", 0, 100, St.MusicVolume * 100, v => St.MusicVolume = v / 100, Pct);
+                Toggle("Musik leiser, wenn gesprochen wird (Ducking)", St.MusicDucking, v => St.MusicDucking = v);
             }
-            Note("Rauschunterdrückung, Lautheit, Musik und Klick-Geräusche wirken im Export. Die Musik wird passend zur Videolänge wiederholt und am Ende ausgeblendet.");
+            Note("Rauschunterdrückung, Lautheit, Musik, Ducking, Ein-/Ausblenden und Klick-Geräusche wirken im Export. Die Musik wird passend zur Videolänge wiederholt und am Ende ausgeblendet.");
+        }
+
+        // ---------------------------------------------------------------- Effekte
+
+        void BuildEffects()
+        {
+            Header("Blenden & Übergänge", true);
+            SliderRow("Einblenden am Anfang", 0, 3, St.FadeIn, v => St.FadeIn = v, Sec);
+            SliderRow("Ausblenden am Ende", 0, 3, St.FadeOut, v => St.FadeOut = v, Sec);
+            Choice("Übergang an Schnitten", new[] { ("Keiner", CutTransition.None), ("Abblende", CutTransition.Fade), ("Blitz", CutTransition.Flash), ("Unschärfe", CutTransition.Blur) },
+                St.CutTransition, v => St.CutTransition = v);
+
+            Header("Farbe der Aufnahme");
+            SliderRow("Helligkeit", -1, 1, St.Brightness, v => St.Brightness = v, Signed);
+            SliderRow("Kontrast", -0.5, 0.8, St.Contrast, v => St.Contrast = v, Signed);
+            SliderRow("Sättigung", -1, 1, St.Saturation, v => St.Saturation = v, Signed);
+            SliderRow("Wärme", -1, 1, St.Warmth, v => St.Warmth = v, Signed);
+            Side.Children.Add(SideButton("Farbe zurücksetzen", "IconUndo", () =>
+            {
+                Change(() => St.Brightness = St.Contrast = St.Saturation = St.Warmth = 0);
+                ShowTab(tab);
+            }));
+
+            Header("Look");
+            SliderRow("Vignette", 0, 100, St.Vignette * 100, v => St.Vignette = v / 100, v => v < 0.5 ? "Aus" : $"{v:0} %");
+            SliderRow("Filmkorn", 0, 100, St.Grain * 100, v => St.Grain = v / 100, v => v < 0.5 ? "Aus" : $"{v:0} %");
+
+            Header("3D & Tiefe");
+            SliderRow("Neigung seitlich", -25, 25, St.TiltY, v => St.TiltY = Math.Round(v, 1), Deg);
+            SliderRow("Neigung vorne/hinten", -25, 25, St.TiltX, v => St.TiltX = Math.Round(v, 1), Deg);
+            var presets = new WrapPanel();
+            foreach (var (name, ty, tx) in new[] { ("Flach", 0.0, 0.0), ("Links", 12.0, 4.0), ("Rechts", -12.0, 4.0), ("Liegend", 0.0, 16.0) })
+                presets.Children.Add(SideButton(name, null, () => { Change(() => { St.TiltY = ty; St.TiltX = tx; }); ShowTab(tab); }));
+            Side.Children.Add(presets);
+            SliderRow("Parallaxe beim Zoomen", 0, 100, St.Parallax * 100, v => St.Parallax = v / 100, v => v < 0.5 ? "Aus" : $"{v:0} %");
+            Note("Parallaxe: Der Hintergrund zoomt weniger mit als die Aufnahme – das wirkt räumlich.");
+
+            Header("Einblendungen");
+            Toggle("Fortschrittsbalken am unteren Rand", St.ProgressBar, v => St.ProgressBar = v);
+            ColorRow("Akzentfarbe (Fortschritt, Hinweise, Bauchbinden)", St.AccentColor, v => St.AccentColor = v);
+            Side.Children.Add(SideButton(St.WatermarkPath == null ? "Logo / Wasserzeichen wählen …" : IOPath.GetFileName(St.WatermarkPath), "IconImage", () =>
+            {
+                var dlg = new OpenFileDialog { Filter = "Bilder|*.png;*.jpg;*.jpeg;*.webp;*.bmp" };
+                if (dlg.ShowDialog(this) == true) { Change(() => St.WatermarkPath = dlg.FileName); ShowTab(tab); }
+            }));
+            if (St.WatermarkPath != null)
+            {
+                Side.Children.Add(SideButton("Logo entfernen", "IconTrash", () => { Change(() => St.WatermarkPath = null); ShowTab(tab); }));
+                Choice("Ecke", new[] { ("Oben rechts", CamCorner.TopRight), ("Oben links", CamCorner.TopLeft), ("Unten rechts", CamCorner.BottomRight), ("Unten links", CamCorner.BottomLeft) },
+                    St.WatermarkCorner, v => St.WatermarkCorner = v);
+                SliderRow("Größe", 4, 30, St.WatermarkSize, v => St.WatermarkSize = v, Pct);
+                SliderRow("Deckkraft", 10, 100, St.WatermarkOpacity * 100, v => St.WatermarkOpacity = v / 100, Pct);
+            }
+            Side.Children.Add(SideButton("Text-Einblendung hinzufügen", "IconText", () => Timeline.AddSegment(TrackKind.Text, p.SourceAt(player.OutTime))));
+
+            Header("Tempo");
+            int idle = p.Edits.Clips.Count(c => c.AutoIdle);
+            Note(idle > 0
+                ? $"{idle} Leerlauf-Abschnitt(e) laufen schneller (gelb in der Zeitleiste)."
+                : "Abschnitte ohne Maus, Klicks, Tasten und Sprache automatisch beschleunigen – Ladezeiten und Wartepausen fliegen vorbei.");
+            var tempo = new WrapPanel();
+            tempo.Children.Add(SideButton("Leerlauf beschleunigen (4×)", "IconSpeed", () =>
+            {
+                int n = 0;
+                Change(() => n = p.ApplyIdleSpeedUp());
+                SaveState.Text = n > 0 ? $"{n} Leerlauf-Abschnitt(e) beschleunigt" : "Kein Leerlauf gefunden";
+                ShowTab(tab);
+            }));
+            if (idle > 0)
+                tempo.Children.Add(SideButton("Zurücksetzen", "IconUndo", () => { Change(() => p.ResetIdleSpeedUp()); ShowTab(tab); }));
+            Side.Children.Add(tempo);
         }
 
         // ---------------------------------------------------------------- Vorlagen
@@ -731,7 +959,7 @@ namespace SnipSnip
         void BuildPresets()
         {
             Header("Stil-Vorlagen", true);
-            Note("Eine Vorlage speichert Hintergrund, Rahmen, Zoom-, Cursor-, Webcam- und Ton-Einstellungen.");
+            Note("Eine Vorlage speichert Hintergrund, Rahmen, Effekte sowie Zoom-, Cursor-, Webcam-, Tastatur- und Ton-Einstellungen.");
             var name = new TextBox { Style = (Style)FindResource("DarkText"), Margin = new Thickness(0, 4, 0, 0), Text = "Meine Vorlage" };
             Side.Children.Add(name);
             Side.Children.Add(SideButton("Aktuellen Stil als Vorlage speichern", "IconSave", () =>
@@ -807,15 +1035,16 @@ namespace SnipSnip
             PreviewOverlay.Children.Clear();
             PreviewOverlay.Background = pickFocus ? Brushes.Transparent : null;
             PreviewOverlay.Cursor = pickFocus ? Cursors.Cross : null;
-            if (!pickFocus) PreviewHint.Text = "";
+            if (!pickFocus) PreviewHint.Text = trackStatus ?? "";
             if (player.Bitmap == null) return;
             if (Timeline.SelectedKind != TrackKind.Mask || Timeline.SelectedIndex < 0 || Timeline.SelectedIndex >= p.Edits.Masks.Count) return;
 
             var m = p.Edits.Masks[Timeline.SelectedIndex];
             var bmp = player.Bitmap;
             double t = p.SourceAt(player.OutTime);
-            var a = ToDisplay(player.Renderer.SourceRelToCanvas(m.X, m.Y, bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam));
-            var b = ToDisplay(player.Renderer.SourceRelToCanvas(m.X + m.W, m.Y + m.H, bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam));
+            var (mx, my, mw, mh) = m.RectAt(t);
+            var a = ToDisplay(player.Renderer.SourceRelToCanvas(mx, my, bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam));
+            var b = ToDisplay(player.Renderer.SourceRelToCanvas(mx + mw, my + mh, bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam));
 
             var rect = new Rectangle
             {
@@ -834,47 +1063,137 @@ namespace SnipSnip
             Canvas.SetTop(handle, b.Y - 6);
             PreviewOverlay.Children.Add(rect);
             PreviewOverlay.Children.Add(handle);
-            AttachMaskDrag(rect, m, resize: false);
-            AttachMaskDrag(handle, m, resize: true);
+            rect.MouseLeftButtonDown += (_, e) => BeginMaskDrag(m, false, e);
+            handle.MouseLeftButtonDown += (_, e) => BeginMaskDrag(m, true, e);
         }
 
-        void AttachMaskDrag(FrameworkElement el, MaskSegment m, bool resize)
+        void BeginMaskDrag(MaskSegment m, bool resize, MouseButtonEventArgs e)
         {
-            Point start = default;
-            double mx = 0, my = 0, mw = 0, mh = 0;
-            el.MouseLeftButtonDown += (_, e) =>
-            {
-                PushUndo();
-                start = e.GetPosition(PreviewOverlay);
-                (mx, my, mw, mh) = (m.X, m.Y, m.W, m.H);
-                el.CaptureMouse();
-                e.Handled = true;
-            };
-            el.MouseMove += (_, e) =>
-            {
-                if (!el.IsMouseCaptured || player.Bitmap == null) return;
-                var bmp = player.Bitmap;
-                double t = p.SourceAt(player.OutTime);
-                var now = player.Renderer.CanvasToSourceRel(ToCanvas(e.GetPosition(PreviewOverlay)), bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam);
-                var was = player.Renderer.CanvasToSourceRel(ToCanvas(start), bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam);
-                double dx = now.X - was.X, dy = now.Y - was.Y;
-                if (resize)
-                {
-                    m.W = Math.Clamp(mw + dx, 0.02, 1 - m.X);
-                    m.H = Math.Clamp(mh + dy, 0.02, 1 - m.Y);
-                }
-                else
-                {
-                    m.X = Math.Clamp(mx + dx, 0, 1 - m.W);
-                    m.Y = Math.Clamp(my + dy, 0, 1 - m.H);
-                }
-                player.Refresh();
-                UpdateOverlay();
-                ScheduleSave();
-            };
-            el.MouseLeftButtonUp += (_, _) => el.ReleaseMouseCapture();
+            if (player.IsPlaying) TogglePlay();
+            PushUndo();
+            if (m.Motion == MaskMotion.Track) CancelTracking();
+            dragMask = m;
+            dragResize = resize;
+            dragMoved = false;
+            dragStart = e.GetPosition(PreviewOverlay);
+            dragT = Math.Clamp(p.SourceAt(player.OutTime), m.Start, m.End);
+            dragBase = m.RectAt(dragT);
+            PreviewOverlay.CaptureMouse();
+            e.Handled = true;
         }
 
+        void Overlay_MouseMove(object sender, MouseEventArgs e)
+        {
+            if (dragMask is not { } m || !PreviewOverlay.IsMouseCaptured || player.Bitmap == null) return;
+            var bmp = player.Bitmap;
+            double t = p.SourceAt(player.OutTime);
+            var now = player.Renderer.CanvasToSourceRel(ToCanvas(e.GetPosition(PreviewOverlay)), bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam);
+            var was = player.Renderer.CanvasToSourceRel(ToCanvas(dragStart), bmp.PixelWidth, bmp.PixelHeight, t, p.HasWebcam);
+            double dx = now.X - was.X, dy = now.Y - was.Y;
+            var (x, y, w, h) = dragBase;
+            if (dragResize)
+            {
+                w = Math.Clamp(w + dx, 0.02, 1 - x);
+                h = Math.Clamp(h + dy, 0.02, 1 - y);
+            }
+            else
+            {
+                x = Math.Clamp(x + dx, 0, 1 - w);
+                y = Math.Clamp(y + dy, 0, 1 - h);
+            }
+            dragMoved = true;
+
+            switch (m.Motion)
+            {
+                case MaskMotion.Fixed:
+                    (m.X, m.Y, m.W, m.H) = (x, y, w, h);
+                    break;
+                case MaskMotion.Keyframes:
+                    m.SetKey(dragT, x, y, w, h);
+                    break;
+                case MaskMotion.Track:
+                    // Größe gilt für die ganze Verfolgung, die Position nur ab hier (wird beim Loslassen neu verfolgt)
+                    if (dragResize) m.Keys = m.Keys.Select(k => k with { W = w, H = h }).ToList();
+                    (m.X, m.Y, m.W, m.H) = (x, y, w, h);
+                    m.SetKey(dragT, x, y, w, h);
+                    break;
+            }
+            player.Refresh();
+            UpdateOverlay();
+            ScheduleSave();
+        }
+
+        void EndMaskDrag()
+        {
+            if (dragMask is not { } m) return;
+            dragMask = null;
+            if (PreviewOverlay.IsMouseCaptured) PreviewOverlay.ReleaseMouseCapture();
+            if (!dragMoved) return;
+            if (m.Motion == MaskMotion.Track) StartTracking(m, dragT, forwardOnly: true);
+            AfterChange();
+        }
+
+        // ---------------------------------------------------------------- Masken-Bewegung
+
+        void SetMaskMotion(MaskSegment m, MaskMotion v)
+        {
+            CancelTracking();
+            double t = Math.Clamp(p.SourceAt(player.OutTime), m.Start, m.End);
+            var cur = m.RectAt(t);
+            m.Motion = v;
+            (m.X, m.Y, m.W, m.H) = cur;
+            m.Keys.Clear();
+            if (v == MaskMotion.Keyframes) m.SetKey(t, cur.X, cur.Y, cur.W, cur.H);
+            if (v == MaskMotion.Track) Dispatcher.InvokeAsync(() => StartTracking(m, t, forwardOnly: false));
+        }
+
+        void CancelTracking()
+        {
+            trackCts?.Cancel();
+            trackCts = null;
+            trackStatus = null;
+        }
+
+        /// <summary>Verfolgt den Inhalt unter der Maske ab t0 (vorwärts, sonst auch rückwärts bis zum Anfang der Maske).</summary>
+        async void StartTracking(MaskSegment m, double t0, bool forwardOnly)
+        {
+            CancelTracking();
+            var cts = trackCts = new CancellationTokenSource();
+            t0 = Math.Clamp(t0, m.Start, m.End);
+            var rect = m.RectAt(t0);
+            trackStatus = "Maske wird verfolgt …";
+            PreviewHint.Text = trackStatus;
+            ShowTab(tab);
+            var progress = new Progress<double>(v =>
+            {
+                if (trackCts != cts) return;
+                trackStatus = $"Maske wird verfolgt … {v * 100:0} %";
+                PreviewHint.Text = trackStatus;
+            });
+            try
+            {
+                var keys = await Task.Run(() => MaskTracker.TrackAsync(p, rect, t0, forwardOnly ? t0 : m.Start, m.End, progress, cts.Token));
+                if (cts.IsCancellationRequested || m.Motion != MaskMotion.Track) return;
+                if (forwardOnly) keys = m.Keys.Where(k => k.T < t0 - 0.001).Concat(keys).ToList();
+                m.Keys = keys;
+                trackStatus = null;
+                AfterChange();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                if (trackCts == cts) trackStatus = "Verfolgung fehlgeschlagen: " + ex.Message;
+            }
+            finally
+            {
+                if (trackCts == cts)
+                {
+                    trackCts = null;
+                    PreviewHint.Text = trackStatus ?? "";
+                    ShowTab(tab);
+                }
+            }
+        }
         void Overlay_MouseDown(object sender, MouseButtonEventArgs e)
         {
             if (!pickFocus || player.Bitmap == null) return;
@@ -922,6 +1241,7 @@ namespace SnipSnip
         void Delete_Click(object sender, RoutedEventArgs e) => Timeline.DeleteSelected();
         void AddZoom_Click(object sender, RoutedEventArgs e) => Timeline.AddSegment(TrackKind.Zoom, p.SourceAt(player.OutTime));
         void AddMask_Click(object sender, RoutedEventArgs e) => Timeline.AddSegment(TrackKind.Mask, p.SourceAt(player.OutTime));
+        void AddText_Click(object sender, RoutedEventArgs e) => Timeline.AddSegment(TrackKind.Text, p.SourceAt(player.OutTime));
         void AddLayout_Click(object sender, RoutedEventArgs e) => Timeline.AddSegment(TrackKind.Layout, p.SourceAt(player.OutTime));
 
         void Mute_Click(object sender, RoutedEventArgs e)
@@ -1066,6 +1386,66 @@ namespace SnipSnip
             await App.Instance.UploadFileAsync(f);
         }
 
+        void ExportStill_Click(object sender, RoutedEventArgs e) => ExportStill(copy: false);
+
+        /// <summary>Aktuelles Bild in Export-Auflösung als PNG speichern oder in die Zwischenablage legen.</summary>
+        async void ExportStill(bool copy)
+        {
+            if (player.IsPlaying) TogglePlay();
+            string? file = null;
+            if (!copy)
+            {
+                var dlg = new SaveFileDialog
+                {
+                    Title = "Standbild speichern",
+                    Filter = "PNG-Bild (*.png)|*.png",
+                    FileName = $"{p.Name}_{player.OutTime:0.0}s.png".Replace(',', '-'),
+                    AddExtension = true
+                };
+                try { Directory.CreateDirectory(App.Settings.SaveFolder); dlg.InitialDirectory = App.Settings.SaveFolder; } catch { }
+                if (dlg.ShowDialog(this) != true) return;
+                file = dlg.FileName;
+            }
+            SaveState.Text = "Standbild wird gerendert …";
+            try
+            {
+                double outT = player.OutTime, src = p.SourceAt(outT);
+                var screen = await FrameDecoder.GrabAsync(p.ScreenFile, src, p.Meta.Width, p.Meta.Height);
+                SKImage? cam = p.HasWebcam ? await FrameDecoder.GrabAsync(p.WebcamFile!, p.Meta.WallAt(src) - p.Meta.WebcamStartEpoch, 1280, 720) : null;
+                var bmp = await Task.Run(() =>
+                {
+                    using var r = new StudioRenderer(p);
+                    var (w, h) = r.OutputSize(ShortSide);
+                    using var surface = SKSurface.Create(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Premul));
+                    surface.Canvas.Clear(SKColors.Black);
+                    r.Render(surface.Canvas, w, h, src, outT, screen, cam, export: true);
+                    using var img = surface.Snapshot();
+                    if (file != null)
+                    {
+                        using var data = img.Encode(SKEncodedImageFormat.Png, 100);
+                        using var fs = File.Create(file);
+                        data.SaveTo(fs);
+                        return null;
+                    }
+                    return ToBitmap(img);
+                });
+                screen?.Dispose();
+                cam?.Dispose();
+                if (bmp != null)
+                {
+                    Clipboard.SetImage(bmp);
+                    SaveState.Text = "Standbild kopiert ✓";
+                }
+                else
+                {
+                    SaveState.Text = "Standbild gespeichert ✓";
+                    Toast.Notify("Standbild gespeichert", IOPath.GetFileName(file!), null, () => App.OpenFolder(file!, true), 5,
+                        ("Ordner öffnen", () => App.OpenFolder(file!, true)));
+                }
+            }
+            catch (Exception ex) { SaveState.Text = "Standbild fehlgeschlagen: " + ex.Message; }
+        }
+
         void CancelExport_Click(object sender, RoutedEventArgs e) => exportCts?.Cancel();
 
         void CloseExport_Click(object sender, RoutedEventArgs e)
@@ -1083,6 +1463,15 @@ namespace SnipSnip
             ("Clip teilen", Split),
             ("Zoom hinzufügen", () => Timeline.AddSegment(TrackKind.Zoom, p.SourceAt(player.OutTime))),
             ("Maske hinzufügen", () => Timeline.AddSegment(TrackKind.Mask, p.SourceAt(player.OutTime))),
+            ("Text / Titel hinzufügen", () => Timeline.AddSegment(TrackKind.Text, p.SourceAt(player.OutTime))),
+            ("Effekte (Blenden, Farbe, Vignette, 3D)", () => SelectTab("effects")),
+            ("Übergänge an Schnitten", () => SelectTab("effects")),
+            ("Fensterrahmen (macOS, Windows, Browser)", () => SelectTab("frame")),
+            ("Cursor-Stil", () => SelectTab("cursor")),
+            ("Scheinwerfer", () => SelectTab("cursor")),
+            ("Leerlauf beschleunigen", () => { int n = 0; Change(() => n = p.ApplyIdleSpeedUp()); SaveState.Text = n > 0 ? $"{n} Leerlauf-Abschnitt(e) beschleunigt" : "Kein Leerlauf gefunden"; }),
+            ("Standbild speichern …", () => ExportStill(copy: false)),
+            ("Standbild kopieren", () => ExportStill(copy: true)),
             ("Hintergrund", () => SelectTab("background")),
             ("Rahmen & Schatten", () => SelectTab("frame")),
             ("Zuschneiden", () => SelectTab("frame")),
@@ -1202,6 +1591,7 @@ namespace SnipSnip
                 case Key.S: Split(); break;
                 case Key.Z: Timeline.AddSegment(TrackKind.Zoom, p.SourceAt(player.OutTime)); break;
                 case Key.M: Timeline.AddSegment(TrackKind.Mask, p.SourceAt(player.OutTime)); break;
+                case Key.T: Timeline.AddSegment(TrackKind.Text, p.SourceAt(player.OutTime)); break;
                 case Key.L when p.HasWebcam: Timeline.AddSegment(TrackKind.Layout, p.SourceAt(player.OutTime)); break;
                 case Key.Delete:
                 case Key.Back: Timeline.DeleteSelected(); break;

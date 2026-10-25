@@ -64,6 +64,8 @@
                                     ToolTip="Zoom an der Abspielposition hinzufügen  (Z)" Click="AddZoom_Click"/>
                             <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconMask}" Content="Maske"
                                     ToolTip="Maske für sensible Daten hinzufügen  (M)" Click="AddMask_Click"/>
+                            <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconText}" Content="Text"
+                                    ToolTip="Titel, Untertitel, Hinweis oder Bauchbinde hinzufügen  (T)" Click="AddText_Click"/>
                             <Button x:Name="AddLayoutBtn" Style="{StaticResource IconButton}" Tag="{StaticResource IconWebcam}" Content="Layout"
                                     ToolTip="Kamera-Layout für einen Abschnitt  (L)" Click="AddLayout_Click"/>
                         </StackPanel>
@@ -120,6 +122,8 @@
                         </DockPanel>
                     </StackPanel>
                     <WrapPanel x:Name="ExportButtons" HorizontalAlignment="Right" Margin="0,18,0,0">
+                        <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconImage}" Content="Standbild"
+                                ToolTip="Aktuelles Bild als PNG speichern" Click="ExportStill_Click" Margin="0,0,4,0"/>
                         <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconCopy}" Content="Kopieren" Click="ExportCopy_Click" Margin="0,0,4,0"/>
                         <Button Style="{StaticResource IconButton}" Tag="{StaticResource IconUpload}" Content="Hochladen" Click="ExportUpload_Click" Margin="0,0,4,0"/>
                         <Button Style="{StaticResource AccentButton}" Tag="{StaticResource IconSave}" Content="Speichern unter …" Click="ExportSave_Click"/>

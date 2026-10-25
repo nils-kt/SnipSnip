@@ -52,7 +52,8 @@ namespace SnipSnip
                     var args = new List<string> { "-y", "-f", "rawvideo", "-pix_fmt", "bgra", "-video_size", $"{W}x{H}", "-framerate", fps.ToString(), "-i", "-" };
                     if (audio != null) { args.Add("-i"); args.Add(audio); }
                     args.AddRange(new[] { "-map", "0:v" });
-                    if (audio != null) args.AddRange(new[] { "-map", "1:a", "-c:a", "aac", "-b:a", "192k", "-shortest" });
+                    // kein -shortest: endet der Ton früher, liest FFmpeg sonst keine Bilder mehr und der Export hängt
+                    if (audio != null) args.AddRange(new[] { "-map", "1:a", "-c:a", "aac", "-b:a", "192k" });
                     args.AddRange(VideoEncoder.Args(kind, o.Gif ? 14 : o.Crf, realtime: false));
                     args.AddRange(new[] { "-movflags", "+faststart", videoOut });
                     return args;
@@ -257,6 +258,13 @@ namespace SnipSnip
                 edited = "[ed]";
             }
 
+            // Ducking: Musik weicht der Stimme bzw. dem Ton aus – dazu die bearbeitete Spur als Steuersignal abzweigen
+            bool duck = music && st.MusicDucking && srcLabels.Count > 0;
+            if (duck)
+            {
+                f.Append($"{edited}asplit=2[edm][eds];");
+                edited = "[edm]";
+            }
             var mixLabels = new List<string> { edited };
             if (clicks != null)
             {
@@ -269,7 +277,7 @@ namespace SnipSnip
             {
                 args.AddRange(new[] { "-stream_loop", "-1", "-i", st.MusicPath! });
                 double fade = Math.Min(2, dur / 3);
-                f.Append($"[{idx}:a]aresample=48000,atrim=duration={N(dur)},volume={N(st.MusicVolume)},afade=t=out:st={N(Math.Max(0, dur - fade))}:d={N(fade)}[mus];");
+                f.Append($"[{idx}:a]aresample=48000,atrim=duration={N(dur)},volume={N(st.MusicVolume)},afade=t=out:st={N(Math.Max(0, dur - fade))}:d={N(fade)}" + (duck ? "[mraw];[mraw][eds]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=600:makeup=1[mus];" : "[mus];"));
                 mixLabels.Add("[mus]");
                 idx++;
             }
@@ -277,7 +285,10 @@ namespace SnipSnip
             string final = mixLabels.Count > 1
                 ? string.Concat(mixLabels) + $"amix=inputs={mixLabels.Count}:duration=first:normalize=0"
                 : $"{edited}anull";
-            f.Append(final + (st.Normalize ? ",loudnorm=I=-16:TP=-1.5:LRA=11" : "") + $",atrim=duration={N(dur)}[out]");
+            string fades = (st.FadeIn > 0.01 ? $",afade=t=in:d={N(Math.Min(st.FadeIn, dur / 2))}" : "")
+                         + (st.FadeOut > 0.01 ? $",afade=t=out:st={N(Math.Max(0, dur - st.FadeOut))}:d={N(Math.Min(st.FadeOut, dur / 2))}" : "");
+            // loudnorm verschiebt die Zeitstempel → neu zählen; apad + atrim: Ton immer exakt so lang wie das Video
+            f.Append(final + (st.Normalize ? ",loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,asetpts=N/SR/TB" : "") + $",apad,atrim=duration={N(dur)}{fades}[out]");
 
             string outPath = Path.Combine(tmp, "audio.wav");
             args.AddRange(new[] { "-filter_complex", f.ToString(), "-map", "[out]", "-ar", "48000", "-ac", "2", outPath });

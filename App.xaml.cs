@@ -50,6 +50,43 @@ namespace SnipSnip
                 return;
             }
 
+            // Diagnose: --track-mask <Projekt> <x> <y> <w> <h> <t0> <von> <bis> <aus.csv> (Rechteck relativ 0..1)
+            int trackIdx = Array.IndexOf(e.Args, "--track-mask");
+            if (trackIdx >= 0 && trackIdx + 9 < e.Args.Length)
+            {
+                string outFile = e.Args[trackIdx + 9];
+                try
+                {
+                    Settings = AppSettings.Load();
+                    var tp = StudioProject.Load(e.Args[trackIdx + 1]);
+                    double A(int i) => double.Parse(e.Args[trackIdx + i], System.Globalization.CultureInfo.InvariantCulture);
+                    var sw = System.Diagnostics.Stopwatch.StartNew();
+                    var keys = System.Threading.Tasks.Task.Run(() => MaskTracker.TrackAsync(tp, (A(2), A(3), A(4), A(5)), A(6), A(7), A(8), null, default)).GetAwaiter().GetResult();
+                    var sb = new System.Text.StringBuilder($"# {sw.Elapsed.TotalSeconds:0.00} s, {keys.Count} keys\nt;x;y\n");
+                    foreach (var k in keys) sb.AppendLine(FormattableString.Invariant($"{k.T:0.000};{k.X * tp.Meta.Width:0.0};{k.Y * tp.Meta.Height:0.0}"));
+                    File.WriteAllText(outFile, sb.ToString());
+                    Shutdown(0);
+                }
+                catch (Exception ex) { File.WriteAllText(outFile, ex.ToString()); Shutdown(1); }
+                return;
+            }
+
+            int traceIdx = Array.IndexOf(e.Args, "--camera-trace");
+            if (traceIdx >= 0 && traceIdx + 2 < e.Args.Length)
+            {
+                try
+                {
+                    Settings = AppSettings.Load();
+                    var tp = StudioProject.Load(e.Args[traceIdx + 1]);
+                    using var tr = new StudioRenderer(tp);
+                    var (tw, th) = tr.OutputSize(1080);
+                    File.WriteAllText(e.Args[traceIdx + 2], tr.CameraTrace(tw, th, 0, tp.Meta.Duration, 60));
+                    Shutdown(0);
+                }
+                catch (Exception ex) { File.WriteAllText(e.Args[traceIdx + 2], ex.ToString()); Shutdown(1); }
+                return;
+            }
+
             int frameIdx = Array.IndexOf(e.Args, "--render-frame");
             if (frameIdx >= 0 && frameIdx + 3 < e.Args.Length)
             {

@@ -304,6 +304,30 @@ namespace SnipSnip
                     () => win.DocsSetup(preview, thumbs, "background", TrackKind.Zoom, zoomIdx, 10.0));
                 Save(shot, outDir, "studio.png");
                 win.Close();
+
+                // 3) Effekte: 3D-Neigung, Bauchbinde, Hinweis, moderner Cursor mit Leuchtkreis
+                var st = p.Edits.Style;
+                st.TiltY = 9;
+                st.TiltX = 3;
+                st.BorderWidth = 1.5;
+                st.Background = BackgroundKind.Wallpaper;
+                st.Preset = 3;
+                st.Vignette = 0.25;
+                st.CursorStyle = CursorStyle.Modern;
+                st.CursorHighlight = true;
+                st.ProgressBar = true;
+                p.Edits.Texts.Add(new TextSegment { Start = 0, End = 6, Text = "Erika Musterfrau\nBuchhaltung, Acme Cloud", Style = TextStyle.LowerThird, Position = TextPosition.Bottom });
+                p.Edits.Texts.Add(new TextSegment { Start = 0, End = 6, Text = "Rechnung als PDF herunterladen", Style = TextStyle.Callout, Position = TextPosition.Top });
+                Save(RenderStudioFrame(p, screen, 1080, 1.4), outDir, "studio-effects.png");
+
+                // 4) Studio-Fenster mit Effekte-Tab und markierter Text-Einblendung
+                var win2 = new StudioWindow(p);
+                var preview2 = RenderStudioFrame(p, screen, 720, 1.4);
+                var root2 = Detach(win2, close: false);
+                var shot2 = Rasterize(Framed(root2, $"SnipSnip Studio – {p.Name}", 1440, 880, wallpaper), 1520, 960,
+                    () => win2.DocsSetup(preview2, thumbs, "effects", TrackKind.Text, 0, 1.4));
+                Save(shot2, outDir, "studio-effects-ui.png");
+                win2.Close();
             }
             finally
             {

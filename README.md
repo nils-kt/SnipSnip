@@ -75,19 +75,25 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 | Bereich | Was geht |
 |---|---|
 | **Kamera & Zoom** | Automatische Zooms bei Klicks und Tastenkürzeln, manuelle Zooms auf der Zeitleiste, die Kamera folgt weich dem Cursor oder einem festen Punkt, Lupen-Zoom, Bewegungsunschärfe |
-| **Cursor** | Geglättete Mausbahn, Größe, hochauflösender Cursor, Ausblenden im Ruhezustand, Klick-Effekte (Kreis oder Welle), Klick-Geräusche, Cursor-Loop |
-| **Hintergrund & Rahmen** | Wallpaper, Verläufe, Farben, eigene Bilder (mit Unschärfe); Abstand, Innenrand, Ecken, Schatten (Deckkraft, Weichheit, Abstand, Winkel); Zuschnitt |
+| **Cursor** | 8 Stile (Original, macOS, Windows, Modern, Farbig, Punkt, Ring, Touch) in beliebiger Farbe, geglättete Mausbahn, Größe, Leuchtkreis, Neigung in Bewegungsrichtung, **Scheinwerfer** (dunkelt alles außer der Cursor-Umgebung ab), Ausblenden im Ruhezustand, 5 Klick-Effekte (Kreis, Welle, Puls, Strahlen, Fokus) in eigener Farbe, Klick-Geräusche, Cursor-Loop. Der Textcursor passt seine Farbe dem Hintergrund an. |
+| **Hintergrund & Rahmen** | Wallpaper, Verläufe, Farben, eigene Bilder (mit Unschärfe); Abstand, Innenrand, Ecken, Randlinie, Schatten (Deckkraft, Weichheit, Abstand, Winkel); **Fensterrahmen** (macOS hell/dunkel, Windows, Browser mit Adresszeile); Zuschnitt |
+| **Effekte** | Ein- und Ausblenden (Bild und Ton), Übergänge an Schnitten (Abblende, Blitz, Unschärfe), Farbkorrektur der Aufnahme, Vignette, Filmkorn, **3D-Neigung**, Parallaxe beim Zoomen, Fortschrittsbalken, Logo/Wasserzeichen |
+| **Text** | Eigene Text-Spur: Titel, Untertitel, Hinweis und Bauchbinde, oben/mittig/unten, weich ein- und ausgeblendet |
 | **Format** | Auto, 16:9, 4:3, 1:1, 4:5 und 9:16 für Reels, TikTok und Shorts. Zoom und Webcam passen sich an. |
 | **Webcam** | Layouts *Overlay*, *Geteilt*, *Nur Kamera* und *Nur Bildschirm*, auch abschnittsweise mit weicher Überblendung; Kreis, abgerundet oder eckig; weicht dem Cursor aus, verkleinert sich beim Zoomen, blendet sich bei Stille aus; Farbkorrektur und Schärfen |
-| **Tastatur** | Tastenkürzel einblenden, lange Tipp-Phasen automatisch beschleunigen |
-| **Bearbeitung** | Teilen, entfernen, beschleunigen (0,5× bis 8×); Masken (Weichzeichnen, Verpixeln, Abdecken mit Umgebungsfarbe, Hervorheben) direkt in der Vorschau ziehen; Rückgängig; Befehlspalette (<kbd>Strg</kbd>+<kbd>K</kbd>) |
-| **Ton** | Lautstärke je Spur, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife |
-| **Export** | MP4 in 720p bis 4K mit 30/60 fps, optimierte GIFs bis 1080p, Kopieren als Datei (für Discord, Teams …), Hochladen zu Imgur oder catbox.moe; parallel gerendert |
+| **Tastatur** | Tastenkürzel einblenden (Position, Größe, hell/dunkel), lange Tipp-Phasen automatisch beschleunigen |
+| **Bearbeitung** | Teilen, entfernen, beschleunigen (0,5× bis 8×), **Leerlauf automatisch beschleunigen**; Masken (Weichzeichnen, Verpixeln, Abdecken mit Umgebungsfarbe, Hervorheben) direkt in der Vorschau ziehen, fest, mit Keyframes oder **automatisch mitbewegt** (folgt z. B. einem verschobenen Fenster); Rückgängig; Befehlspalette (<kbd>Strg</kbd>+<kbd>K</kbd>) |
+| **Ton** | Lautstärke je Spur, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife, die bei Sprache automatisch leiser wird (Ducking) |
+| **Export** | MP4 in 720p bis 4K mit 30/60 fps, optimierte GIFs bis 1080p, Standbild als PNG, Kopieren als Datei (für Discord, Teams …), Hochladen zu Imgur oder catbox.moe; parallel gerendert |
 | **Vorlagen** | Stile speichern und als Standard für neue Aufnahmen festlegen |
 
 <img src="docs/images/studio-zoom.png" alt="Automatischer Zoom auf die angeklickte Stelle mit weichgezeichneter IBAN und eingeblendetem Tastenkürzel">
 
-Tasten im Studio: <kbd>Leertaste</kbd> abspielen, <kbd>S</kbd> teilen, <kbd>Entf</kbd> entfernen, <kbd>Z</kbd> Zoom, <kbd>M</kbd> Maske, <kbd>L</kbd> Layout, <kbd>←</kbd>/<kbd>→</kbd> Bild für Bild, <kbd>Strg</kbd>+<kbd>E</kbd> exportieren, <kbd>Strg</kbd>+<kbd>K</kbd> Befehle. Vorhandene Videos lassen sich ebenfalls importieren und gestalten (ohne Cursor-Daten).
+<img src="docs/images/studio-effects.png" alt="Fertiges Video mit 3D-Neigung, Hinweis oben, Bauchbinde unten links, modernem Cursor mit Leuchtkreis und Fortschrittsbalken">
+
+<img src="docs/images/studio-effects-ui.png" alt="Studio mit Effekte-Tab und markierter Bauchbinde auf der Text-Spur">
+
+Tasten im Studio: <kbd>Leertaste</kbd> abspielen, <kbd>S</kbd> teilen, <kbd>Entf</kbd> entfernen, <kbd>Z</kbd> Zoom, <kbd>M</kbd> Maske, <kbd>T</kbd> Text, <kbd>L</kbd> Layout, <kbd>←</kbd>/<kbd>→</kbd> Bild für Bild, <kbd>Strg</kbd>+<kbd>E</kbd> exportieren, <kbd>Strg</kbd>+<kbd>K</kbd> Befehle. Vorhandene Videos lassen sich ebenfalls importieren und gestalten (ohne Cursor-Daten).
 
 > Für Videos nutzt SnipSnip das freie [FFmpeg](https://ffmpeg.org). Fehlt es, bietet SnipSnip beim ersten Video an, es herunterzuladen: offizieller Build von [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds), per SHA-256 geprüft. Alternativ: `winget install Gyan.FFmpeg`.
 ### Einstellungen & Benachrichtigungen

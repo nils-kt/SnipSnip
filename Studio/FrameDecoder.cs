@@ -21,7 +21,8 @@ namespace SnipSnip
         Process? proc;
         Stream? stdout;
         int w, h;
-        byte[]? buf;
+        byte[]? buf, readBuf;
+        bool pending;
         double startT, curT = double.NaN;
         long frameIndex;
         SKImage? current;
@@ -64,30 +65,43 @@ namespace SnipSnip
             _ = proc.StandardError.ReadToEndAsync();
             stdout = proc.StandardOutput.BaseStream;
             buf ??= new byte[w * h * 4];
+            readBuf ??= new byte[w * h * 4];
             frameIndex = 0;
             curT = double.NaN;
         }
 
+        /// <summary>Liest ein Bild nur als Rohdaten – übersprungene Bilder (z. B. an Schnitten) kosten so kein SKImage.</summary>
         bool ReadFrame()
         {
-            if (stdout == null || buf == null) return false;
+            if (stdout == null || buf == null || readBuf == null) return false;
             int off = 0;
-            while (off < buf.Length)
+            while (off < readBuf.Length)
             {
-                int n = stdout.Read(buf, off, buf.Length - off);
+                int n = stdout.Read(readBuf, off, readBuf.Length - off);
                 if (n <= 0) return false;
                 off += n;
             }
+            (buf, readBuf) = (readBuf, buf);
             curT = startT + frameIndex / fps;
             frameIndex++;
-            // ältere Bilder erst später freigeben – parallele Export-Renderer können sie noch benutzen
+            pending = true;
+            return true;
+        }
+
+        /// <summary>
+        /// Macht das zuletzt gelesene Bild zum aktuellen. Ältere Bilder werden erst später freigegeben, weil parallele
+        /// Export-Renderer sie noch benutzen – pro Abruf entsteht höchstens ein neues Bild, die Warteschlange reicht also sicher.
+        /// </summary>
+        void Publish()
+        {
+            if (!pending || buf == null) return;
+            pending = false;
             if (current != null)
             {
                 retired.Enqueue(current);
                 while (retired.Count > 48) retired.Dequeue().Dispose();
             }
             current = SKImage.FromPixelCopy(new SKImageInfo(w, h, SKColorType.Bgra8888, SKAlphaType.Opaque), buf, w * 4);
-            return true;
         }
 
         /// <summary>Bild zur Zeit t (Sekunden). Gibt das Bild zurück, das Eigentum bleibt beim Decoder.</summary>
@@ -102,10 +116,13 @@ namespace SnipSnip
                                    || (double.IsNaN(curT) && (t < startT - half || t > startT + 3))
                                    || (!double.IsNaN(curT) && (t < curT - half || t > curT + 3));
                 if (needRestart) Restart(t);
-                while (double.IsNaN(curT) || curT + half < t)
+                // genau zwischen zwei Bildern immer das frühere nehmen (Toleranz gegen Rundungsrauschen) –
+                // verfolgte Masken rechnen mit derselben Regel
+                while (double.IsNaN(curT) || curT + half < t - 1e-6)
                 {
                     if (!ReadFrame()) break;
                 }
+                Publish();
                 return current;
             }
         }

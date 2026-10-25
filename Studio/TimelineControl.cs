@@ -9,11 +9,11 @@ using System.Windows.Media.Imaging;
 
 namespace SnipSnip
 {
-    public enum TrackKind { None, Clip, Zoom, Mask, Layout }
+    public enum TrackKind { None, Clip, Zoom, Mask, Text, Layout }
 
     /// <summary>
     /// Zeitleiste des Studios (Quellzeit): Clip-Spur mit Vorschaubildern, Schnitten und Tempo,
-    /// Zoom-, Masken- und Layout-Spur. Segmente lassen sich auswählen, verschieben und in der Länge ändern;
+    /// Zoom-, Masken-, Text- und Layout-Spur. Segmente lassen sich auswählen, verschieben und in der Länge ändern;
     /// Doppelklick in eine leere Stelle legt ein neues Segment an.
     /// </summary>
     public sealed class TimelineControl : FrameworkElement
@@ -46,6 +46,7 @@ namespace SnipSnip
         static readonly Brush ZoomFill = Frozen(new SolidColorBrush(Color.FromArgb(0xD0, 0x4F, 0x8C, 0xFF)));
         static readonly Brush ZoomAuto = Frozen(new SolidColorBrush(Color.FromArgb(0x90, 0x4F, 0x8C, 0xFF)));
         static readonly Brush MaskFill = Frozen(new SolidColorBrush(Color.FromArgb(0xC8, 0xE8, 0x5D, 0x75)));
+        static readonly Brush TextFill = Frozen(new SolidColorBrush(Color.FromArgb(0xC8, 0xE0, 0x9A, 0x2A)));
         static readonly Brush LayoutFill = Frozen(new SolidColorBrush(Color.FromArgb(0xC8, 0x2D, 0xBF, 0x9A)));
         static readonly Brush SpeedFill = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xFF, 0xB0, 0x20)));
         static readonly Brush Removed = Frozen(new SolidColorBrush(Color.FromArgb(0xC8, 0x0C, 0x0C, 0x0E)));
@@ -109,10 +110,11 @@ namespace SnipSnip
         double ClipTop => RulerH + 2;
         double ZoomTop => ClipTop + ClipH + Gap;
         double MaskTop => ZoomTop + RowH + Gap;
-        double LayoutTop => MaskTop + RowH + Gap;
+        double TextTop => MaskTop + RowH + Gap;
+        double LayoutTop => TextTop + RowH + Gap;
 
         protected override Size MeasureOverride(Size available) =>
-            new(double.IsInfinity(available.Width) ? 600 : available.Width, (ShowLayoutRow ? LayoutTop + RowH : MaskTop + RowH) + 8);
+            new(double.IsInfinity(available.Width) ? 600 : available.Width, (ShowLayoutRow ? LayoutTop + RowH : TextTop + RowH) + 8);
 
         // ================================================================== Zeichnen
 
@@ -182,7 +184,22 @@ namespace SnipSnip
 
             // Segment-Spuren
             DrawRow(dc, ZoomTop, "Zoom", project.Edits.Zooms.Select(z => (z.Start, z.End, $"{(z.Type == ZoomType.Loupe ? "Lupe " : "")}{z.Level:0.0}×", z.Auto ? ZoomAuto : ZoomFill)).ToList(), TrackKind.Zoom, dpi);
-            DrawRow(dc, MaskTop, "Maske", project.Edits.Masks.Select(m => (m.Start, m.End, MaskName(m.Kind), MaskFill)).ToList(), TrackKind.Mask, dpi);
+            DrawRow(dc, MaskTop, "Maske", project.Edits.Masks.Select(m => (m.Start, m.End, MaskName(m.Kind) + MotionSuffix(m.Motion), MaskFill)).ToList(), TrackKind.Mask, dpi);
+            // Keyframes als kleine Rauten
+            foreach (var m in project.Edits.Masks.Where(m => m.Motion == MaskMotion.Keyframes))
+                foreach (var k in m.Keys.Where(k => k.T >= m.Start && k.T <= m.End))
+                {
+                    double kx = X(k.T), ky = MaskTop + RowH / 2;
+                    var g = new StreamGeometry();
+                    using (var gc = g.Open())
+                    {
+                        gc.BeginFigure(new Point(kx, ky - 5), true, true);
+                        gc.PolyLineTo(new[] { new Point(kx + 5, ky), new Point(kx, ky + 5), new Point(kx - 5, ky) }, true, false);
+                    }
+                    g.Freeze();
+                    dc.DrawGeometry(Brushes.White, KeyPen, g);
+                }
+            DrawRow(dc, TextTop, "Text", project.Edits.Texts.Select(x => (x.Start, x.End, TextLabel(x), TextFill)).ToList(), TrackKind.Text, dpi);
             if (ShowLayoutRow)
                 DrawRow(dc, LayoutTop, "Layout", project.Edits.Layouts.Select(l => (l.Start, l.End, LayoutName(l.Layout), LayoutFill)).ToList(), TrackKind.Layout, dpi);
 
@@ -231,6 +248,36 @@ namespace SnipSnip
             }
         }
 
+        static readonly Pen KeyPen = FrozenPen(new SolidColorBrush(Color.FromArgb(0xC0, 0x30, 0x10, 0x18)), 1);
+
+        static Pen FrozenPen(Brush b, double w)
+        {
+            var pen = new Pen(b, w);
+            pen.Freeze();
+            return pen;
+        }
+
+        static string MotionSuffix(MaskMotion m) => m switch
+        {
+            MaskMotion.Track => "  ·  folgt",
+            MaskMotion.Keyframes => "  ·  Keyframes",
+            _ => ""
+        };
+
+        static string TextLabel(TextSegment s)
+        {
+            string first = s.Text.Replace("\r", "").Split('\n')[0];
+            return first.Length > 40 ? first[..40] + "…" : first;
+        }
+
+        public static string TextStyleName(TextStyle s) => s switch
+        {
+            TextStyle.Title => "Titel",
+            TextStyle.Subtitle => "Untertitel",
+            TextStyle.Callout => "Hinweis",
+            _ => "Bauchbinde"
+        };
+
         public static string MaskName(MaskKind k) => k switch
         {
             MaskKind.Blur => "Weichzeichnen",
@@ -266,6 +313,7 @@ namespace SnipSnip
             if (project == null) return (TrackKind.None, -1, false, false);
             TrackKind kind = p.Y >= ZoomTop && p.Y < ZoomTop + RowH ? TrackKind.Zoom
                 : p.Y >= MaskTop && p.Y < MaskTop + RowH ? TrackKind.Mask
+                : p.Y >= TextTop && p.Y < TextTop + RowH ? TrackKind.Text
                 : ShowLayoutRow && p.Y >= LayoutTop && p.Y < LayoutTop + RowH ? TrackKind.Layout
                 : p.Y >= ClipTop && p.Y < ClipTop + ClipH ? TrackKind.Clip : TrackKind.None;
             var segs = Segments(kind);
@@ -284,6 +332,7 @@ namespace SnipSnip
             TrackKind.Zoom => project!.Edits.Zooms.Select(c => (c.Start, c.End)).ToList(),
             TrackKind.Mask => project!.Edits.Masks.Select(c => (c.Start, c.End)).ToList(),
             TrackKind.Layout => project!.Edits.Layouts.Select(c => (c.Start, c.End)).ToList(),
+            TrackKind.Text => project!.Edits.Texts.Select(c => (c.Start, c.End)).ToList(),
             _ => new List<(double, double)>()
         };
 
@@ -294,6 +343,7 @@ namespace SnipSnip
                 case TrackKind.Zoom: project!.Edits.Zooms[i].Start = s; project.Edits.Zooms[i].End = e; project.Edits.Zooms[i].Auto = false; break;
                 case TrackKind.Mask: project!.Edits.Masks[i].Start = s; project.Edits.Masks[i].End = e; break;
                 case TrackKind.Layout: project!.Edits.Layouts[i].Start = s; project.Edits.Layouts[i].End = e; break;
+                case TrackKind.Text: project!.Edits.Texts[i].Start = s; project.Edits.Texts[i].End = e; break;
             }
         }
 
@@ -305,14 +355,14 @@ namespace SnipSnip
             var p = e.GetPosition(this);
             var hit = HitTest(p);
 
-            if (e.ClickCount == 2 && hit.Kind is TrackKind.Zoom or TrackKind.Mask or TrackKind.Layout && hit.Index < 0)
+            if (e.ClickCount == 2 && hit.Kind is TrackKind.Zoom or TrackKind.Mask or TrackKind.Text or TrackKind.Layout && hit.Index < 0)
             {
                 AddSegment(hit.Kind, T(p.X));
                 e.Handled = true;
                 return;
             }
 
-            if (hit.Kind is TrackKind.Zoom or TrackKind.Mask or TrackKind.Layout && hit.Index >= 0)
+            if (hit.Kind is TrackKind.Zoom or TrackKind.Mask or TrackKind.Text or TrackKind.Layout && hit.Index >= 0)
             {
                 Select(hit.Kind, hit.Index);
                 var seg = Segments(hit.Kind)[hit.Index];
@@ -401,6 +451,10 @@ namespace SnipSnip
                     project.Edits.Masks.Add(new MaskSegment { Start = s, End = en });
                     index = project.Edits.Masks.Count - 1;
                     break;
+                case TrackKind.Text:
+                    project.Edits.Texts.Add(new TextSegment { Start = s, End = en });
+                    index = project.Edits.Texts.Count - 1;
+                    break;
                 case TrackKind.Layout:
                     project.Edits.Layouts.Add(new LayoutSegment { Start = s, End = en });
                     index = project.Edits.Layouts.Count - 1;
@@ -422,6 +476,8 @@ namespace SnipSnip
                     BeforeEdit?.Invoke(); project.Edits.Zooms.RemoveAt(SelectedIndex); break;
                 case TrackKind.Mask when SelectedIndex < project.Edits.Masks.Count:
                     BeforeEdit?.Invoke(); project.Edits.Masks.RemoveAt(SelectedIndex); break;
+                case TrackKind.Text when SelectedIndex < project.Edits.Texts.Count:
+                    BeforeEdit?.Invoke(); project.Edits.Texts.RemoveAt(SelectedIndex); break;
                 case TrackKind.Layout when SelectedIndex < project.Edits.Layouts.Count:
                     BeforeEdit?.Invoke(); project.Edits.Layouts.RemoveAt(SelectedIndex); break;
                 case TrackKind.Clip when SelectedIndex < project.Edits.Clips.Count:
