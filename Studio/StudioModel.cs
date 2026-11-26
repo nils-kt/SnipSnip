@@ -285,9 +285,73 @@ namespace SnipSnip
         public LayoutSegment Clone() => (LayoutSegment)MemberwiseClone();
     }
 
+    /// <summary>Tonspuren des Projekts. Der Ton eines importierten Videos zählt als System-Ton.</summary>
+    public enum AudioTrackId { System, Mic, Music }
+
+    /// <summary>Bearbeitung einer Tonspur (Lautstärke liegt im Stil): stumm, entfernt, Ein-/Ausblenden in Sekunden des fertigen Videos.</summary>
+    public sealed class AudioTrackEdit
+    {
+        public bool Muted { get; set; }
+        /// <summary>Spur ganz entfernt (Musik: Datei abgewählt; Mikrofon/System: ausgeblendet und nicht im Export).</summary>
+        public bool Removed { get; set; }
+        public double FadeIn { get; set; }
+        public double FadeOut { get; set; }
+    }
+
     public sealed class ProjectEdits
     {
         public StudioStyle Style { get; set; } = new();
+        /// <summary>Tonspuren: Schlüssel "system", "mic", "music".</summary>
+        public Dictionary<string, AudioTrackEdit> Audio { get; set; } = new();
+
+        public static string Key(AudioTrackId id) => id switch { AudioTrackId.Mic => "mic", AudioTrackId.Music => "music", _ => "system" };
+
+        /// <summary>Einstellungen einer Tonspur (Musik wird standardmäßig 2 s ausgeblendet).</summary>
+        public AudioTrackEdit Track(AudioTrackId id)
+        {
+            if (!Audio.TryGetValue(Key(id), out var t))
+                Audio[Key(id)] = t = new AudioTrackEdit { FadeOut = id == AudioTrackId.Music ? 2 : 0 };
+            return t;
+        }
+
+        static readonly AudioTrackEdit DefaultTrack = new(), DefaultMusic = new() { FadeOut = 2 };
+
+        /// <summary>Nur lesen (legt nichts an – auch aus dem Ton-Thread der Vorschau sicher).</summary>
+        public AudioTrackEdit Peek(AudioTrackId id) =>
+            Audio.TryGetValue(Key(id), out var t) ? t : id == AudioTrackId.Music ? DefaultMusic : DefaultTrack;
+
+        /// <summary>Lautstärke einer Spur (Stil).</summary>
+        public double Volume(AudioTrackId id) => id switch { AudioTrackId.Mic => Style.MicVolume, AudioTrackId.Music => Style.MusicVolume, _ => Style.SystemVolume };
+
+        public void SetVolume(AudioTrackId id, double v)
+        {
+            switch (id)
+            {
+                case AudioTrackId.Mic: Style.MicVolume = v; break;
+                case AudioTrackId.Music: Style.MusicVolume = v; break;
+                default: Style.SystemVolume = v; break;
+            }
+        }
+
+        /// <summary>Wirksame Lautstärke (0 bei stumm oder entfernt).</summary>
+        public double Gain(AudioTrackId id)
+        {
+            var t = Peek(id);
+            if (t.Muted || t.Removed) return 0;
+            if (id == AudioTrackId.Music && Style.MusicPath == null) return 0;
+            return Volume(id);
+        }
+
+        /// <summary>Ein-/Ausblende-Faktor einer Spur zur Ausgabezeit (0…1).</summary>
+        public double FadeAt(AudioTrackId id, double outT, double outDur)
+        {
+            var t = Peek(id);
+            double k = 1;
+            double fi = Math.Min(t.FadeIn, outDur / 2), fo = Math.Min(t.FadeOut, outDur / 2);
+            if (fi > 0.01 && outT < fi) k *= Math.Max(0, outT / fi);
+            if (fo > 0.01 && outT > outDur - fo) k *= Math.Max(0, (outDur - outT) / fo);
+            return k;
+        }
         public List<ClipSegment> Clips { get; set; } = new();
         public List<ZoomSegment> Zooms { get; set; } = new();
         public List<MaskSegment> Masks { get; set; } = new();

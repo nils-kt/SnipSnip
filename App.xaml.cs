@@ -96,6 +96,22 @@ namespace SnipSnip
                 return;
             }
 
+            // Entwickler-Hilfe: Pegelverlauf einer Tondatei (Wellenform der Zeitleiste) als Text
+            int peaksIdx = Array.IndexOf(e.Args, "--audio-peaks");
+            if (peaksIdx >= 0 && peaksIdx + 2 < e.Args.Length)
+            {
+                string outFile = e.Args[peaksIdx + 2];
+                try
+                {
+                    Settings = AppSettings.Load();
+                    var peaks = System.Threading.Tasks.Task.Run(() => AudioPeaks.LoadAsync(e.Args[peaksIdx + 1])).GetAwaiter().GetResult();
+                    File.WriteAllLines(outFile, peaks.Select(v => v.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture)));
+                    Shutdown(0);
+                }
+                catch (Exception ex) { File.WriteAllText(outFile, "FEHLER " + ex); Shutdown(1); }
+                return;
+            }
+
             int traceIdx = Array.IndexOf(e.Args, "--camera-trace");
             if (traceIdx >= 0 && traceIdx + 2 < e.Args.Length)
             {

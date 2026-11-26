@@ -637,6 +637,35 @@ namespace SnipSnip
                     box.Children.Add(SideButton("Layout-Abschnitt löschen", "IconTrash", () => Timeline.DeleteSelected()));
                     break;
                 }
+                case TrackKind.Audio:
+                {
+                    var id = (AudioTrackId)i;
+                    var te = p.Edits.Track(id);
+                    string name = TimelineControl.AudioLabel(p, id);
+                    Title($"Tonspur  ·  {name}");
+                    Toggle("Stumm", te.Muted, v => te.Muted = v, box);
+                    SliderRow("Lautstärke", 0, id == AudioTrackId.Music ? 100 : 200, p.Edits.Volume(id) * 100, v => p.Edits.SetVolume(id, v / 100), Pct, box);
+                    double maxFade = Math.Max(0.5, Math.Min(10, p.OutputDuration / 2));
+                    SliderRow("Einblenden", 0, maxFade, Math.Min(te.FadeIn, maxFade), v => te.FadeIn = Math.Round(v, 1), Sec, box);
+                    SliderRow("Ausblenden", 0, maxFade, Math.Min(te.FadeOut, maxFade), v => te.FadeOut = Math.Round(v, 1), Sec, box);
+                    if (id == AudioTrackId.Mic)
+                        Choice("Rauschunterdrückung", new[] { ("Aus", NoiseMode.Off), ("Standard", NoiseMode.Standard), ("Podcast", NoiseMode.Podcast) }, St.Noise, v => St.Noise = v, box);
+                    if (id == AudioTrackId.Music)
+                    {
+                        Toggle("Leiser, wenn gesprochen wird (Ducking)", St.MusicDucking, v => St.MusicDucking = v, box);
+                        box.Children.Add(SideButton(St.MusicPath != null ? IOPath.GetFileName(St.MusicPath) : "Musik wählen …", "IconFolder", PickMusic));
+                    }
+                    box.Children.Add(new TextBlock
+                    {
+                        Text = "Die Blenden lassen sich auch direkt an den weißen Griffen der Spur ziehen; Rechtsklick auf die Spur für ein Schnellmenü.",
+                        Foreground = (Brush)FindResource("FgDimBrush"),
+                        FontSize = 12,
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(0, 6, 0, 0)
+                    });
+                    box.Children.Add(SideButton($"{name} entfernen", "IconTrash", () => Timeline.RemoveAudio(id)));
+                    break;
+                }
                 case TrackKind.Clip when i < p.Edits.Clips.Count:
                 {
                     var c = p.Edits.Clips[i];
@@ -970,30 +999,47 @@ namespace SnipSnip
 
         void BuildAudio()
         {
-            Header("Lautstärke", true);
-            if (p.Meta.HasSystemAudio || p.Meta.SourceFile != null)
-                SliderRow("System-Ton", 0, 200, St.SystemVolume * 100, v => St.SystemVolume = v / 100, Pct);
-            if (p.Meta.HasMic)
-                SliderRow("Mikrofon", 0, 200, St.MicVolume * 100, v => St.MicVolume = v / 100, Pct);
-            if (!p.Meta.HasSystemAudio && !p.Meta.HasMic && p.Meta.SourceFile == null) Note("Diese Aufnahme hat keine Tonspur.");
+            Header("Tonspuren", true);
+            bool any = false;
+            var removed = new List<(AudioTrackId Id, string Label)>();
+            void Track(AudioTrackId id, bool exists, double max)
+            {
+                if (!exists) return;
+                any = true;
+                string name = TimelineControl.AudioLabel(p, id);
+                var te = p.Edits.Peek(id);
+                if (te.Removed) { removed.Add((id, name)); return; }
+                SliderRow(name + (te.Muted ? " (stumm)" : ""), 0, max, p.Edits.Volume(id) * 100, v => p.Edits.SetVolume(id, v / 100), Pct);
+            }
+            Track(AudioTrackId.System, p.Meta.HasSystemAudio || p.Meta.SourceFile != null, 200);
+            Track(AudioTrackId.Mic, p.Meta.HasMic, 200);
+            if (!any) Note("Diese Aufnahme hat keine Tonspur.");
+            else Note("Klick auf eine Tonspur in der Zeitleiste: Lautstärke, stumm schalten, Ein-/Ausblenden und Entfernen.");
+            foreach (var (id, name) in removed)
+                Side.Children.Add(SideButton($"{name} wiederherstellen", "IconUndo", () => { Timeline.RestoreAudio(id); }));
+
             Header("Stimme");
             Choice("Rauschunterdrückung (Mikrofon)", new[] { ("Aus", NoiseMode.Off), ("Standard", NoiseMode.Standard), ("Podcast", NoiseMode.Podcast) }, St.Noise, v => St.Noise = v);
             Toggle("Lautheit angleichen (−16 LUFS)", St.Normalize, v => St.Normalize = v);
             Header("Hintergrundmusik");
-            Side.Children.Add(SideButton(St.MusicPath == null ? "Musik wählen …" : IOPath.GetFileName(St.MusicPath), "IconFolder", () =>
-            {
-                var dlg = new OpenFileDialog { Filter = "Audio|*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.flac" };
-                if (dlg.ShowDialog(this) == true) { Change(() => St.MusicPath = dlg.FileName); ShowTab(tab); }
-            }));
+            Side.Children.Add(SideButton(St.MusicPath == null ? "Musik wählen …" : IOPath.GetFileName(St.MusicPath), "IconFolder", PickMusic));
             if (St.MusicPath != null)
             {
-                Side.Children.Add(SideButton("Musik entfernen", "IconTrash", () => { Change(() => St.MusicPath = null); ShowTab(tab); }));
+                Side.Children.Add(SideButton("Musik entfernen", "IconTrash", () => Timeline.RemoveAudio(AudioTrackId.Music)));
                 SliderRow("Musik-Lautstärke", 0, 100, St.MusicVolume * 100, v => St.MusicVolume = v / 100, Pct);
                 Toggle("Musik leiser, wenn gesprochen wird (Ducking)", St.MusicDucking, v => St.MusicDucking = v);
             }
-            Note("Rauschunterdrückung, Lautheit, Musik, Ducking, Ein-/Ausblenden und Klick-Geräusche wirken im Export. Die Musik wird passend zur Videolänge wiederholt und am Ende ausgeblendet.");
+            Note("Lautstärke, Stumm, Blenden und Musik sind in der Vorschau zu hören. Rauschunterdrückung, Lautheit und das genaue Ducking wirken im Export. Die Musik wird passend zur Videolänge wiederholt.");
         }
 
+        void PickMusic()
+        {
+            var dlg = new OpenFileDialog { Filter = "Audio|*.mp3;*.wav;*.m4a;*.aac;*.ogg;*.flac" };
+            if (dlg.ShowDialog(this) != true) return;
+            Change(() => St.MusicPath = dlg.FileName);
+            if (Timeline.SelectedKind == TrackKind.Audio) Timeline.Select(TrackKind.Audio, (int)AudioTrackId.Music);
+            else ShowTab(tab);
+        }
         // ---------------------------------------------------------------- Effekte
 
         void BuildEffects()

@@ -70,7 +70,7 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 
 ### Das Studio
 
-<img src="docs/images/studio.png" alt="SnipSnip Studio mit Vorschau, Seitenleiste für Hintergründe und Zeitleiste mit Zoom-, Masken- und Clip-Spuren">
+<img src="docs/images/studio.png" alt="SnipSnip Studio mit Vorschau, Seitenleiste für Hintergründe und Zeitleiste mit Clip-, Zoom-, Masken- und Tonspuren">
 
 | Bereich | Was geht |
 |---|---|
@@ -83,11 +83,13 @@ Wie bei Screen Studio wird **nicht einfach der Bildschirm abgefilmt**: SnipSnip 
 | **Webcam** | Layouts *Overlay*, *Geteilt* (im Rahmen oder randlos in voller Auflösung, Kamera links oder rechts, Breite einstellbar), *Nur Kamera* und *Nur Bildschirm*, auch abschnittsweise mit weicher Überblendung; Kreis, abgerundet oder eckig; weicht dem Cursor aus, verkleinert sich beim Zoomen, blendet sich bei Stille aus; Farbkorrektur und Schärfen |
 | **Tastatur** | Tastenkürzel einblenden (Position, Größe, hell/dunkel), lange Tipp-Phasen automatisch beschleunigen |
 | **Bearbeitung** | Teilen, entfernen, beschleunigen (0,5× bis 8×), **Leerlauf automatisch beschleunigen**; Masken (Weichzeichnen, Verpixeln, Abdecken mit Umgebungsfarbe, Hervorheben) direkt in der Vorschau ziehen, fest, mit Keyframes oder **automatisch mitbewegt** (folgt z. B. einem verschobenen Fenster); Rückgängig; Befehlspalette (<kbd>Strg</kbd>+<kbd>K</kbd>) |
-| **Ton** | Lautstärke je Spur, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife, die bei Sprache automatisch leiser wird (Ducking) |
+| **Ton** | Tonspuren (Mikrofon, System-Ton, Musik) als Wellenform in der Zeitleiste – anklicken zum Lauter-/Leisermachen, Stummschalten, Ein-/Ausblenden (auch direkt an den Griffen ziehen) und Entfernen; die Vorschau spielt den Mix so, wie er exportiert wird, Rauschunterdrückung (Standard/Podcast), Lautheit auf −16 LUFS, Hintergrundmusik in Schleife, die bei Sprache automatisch leiser wird (Ducking) |
 | **Export** | MP4 in 720p bis 4K mit 30/60 fps, optimierte GIFs bis 1080p, Standbild als PNG, Kopieren als Datei (für Discord, Teams …), Hochladen zu Imgur oder catbox.moe; parallel gerendert |
 | **Vorlagen** | Stile speichern und als Standard für neue Aufnahmen festlegen |
 
 <img src="docs/images/studio-zoom.png" alt="Automatischer Zoom auf die angeklickte Stelle mit weichgezeichneter IBAN und eingeblendetem Tastenkürzel">
+
+<img src="docs/images/studio-audio.png" alt="Studio mit markierter Mikrofon-Spur: Lautstärke, Stumm, Ein- und Ausblenden in der Seitenleiste, Blenden-Rampen mit Griffen in der Zeitleiste">
 
 <img src="docs/images/studio-effects.png" alt="Fertiges Video mit 3D-Neigung, Hinweis oben, Bauchbinde unten links, modernem Cursor mit Leuchtkreis und Fortschrittsbalken">
 

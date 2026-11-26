@@ -376,7 +376,18 @@ namespace SnipSnip
                     }),
                     ("trim_start", Prop("number", "Remove everything before this time (s).")),
                     ("trim_end", Prop("number", "Remove everything after this time (s).")),
-                    ("speed_up_idle", Prop("boolean", "true: speed up idle parts 4×, false: reset."))), (a, _) => Task.FromResult(EditProject(a))),
+                    ("speed_up_idle", Prop("boolean", "true: speed up idle parts 4×, false: reset.")),
+                    ("audio", new JsonObject
+                    {
+                        ["type"] = "object",
+                        ["description"] = "Per audio track settings, keys \"mic\", \"system\" (also the audio of an imported video) and \"music\". " +
+                                          "Example: {\"mic\":{\"volume\":1.2,\"fade_in\":0.5},\"system\":{\"muted\":true},\"music\":{\"fade_out\":3}}. " +
+                                          "Fades are seconds of the finished video; removed=true drops the track (music: deselects the file).",
+                        ["additionalProperties"] = Schema(Array.Empty<string>(),
+                            ("volume", Prop("number", "0–2 (music 0–1)")), ("muted", Prop("boolean", "Mute")),
+                            ("fade_in", Prop("number", "Fade in (s)")), ("fade_out", Prop("number", "Fade out (s)")),
+                            ("removed", Prop("boolean", "Remove / restore the track")))
+                    })), (a, _) => Task.FromResult(EditProject(a))),
 
             new Tool("render_frame", "Render preview frame",
                 "Renders one frame of the finished video (with style, zoom, cursor, texts) so you can check edits visually.",
@@ -776,6 +787,7 @@ namespace SnipSnip
                 ["zooms"] = JsonSerializer.SerializeToNode(e.Zooms, AppSettings.Json),
                 ["masks"] = e.Masks.Count,
                 ["texts"] = JsonSerializer.SerializeToNode(e.Texts, AppSettings.Json),
+                ["audio"] = JsonSerializer.SerializeToNode(e.Audio, AppSettings.Json),
                 ["style"] = JsonSerializer.SerializeToNode(e.Style, AppSettings.Json)
             };
             return Result(JsonText(o));
@@ -867,6 +879,32 @@ namespace SnipSnip
             if (Num(a, "trim_start") is double ts0 && ts0 > 0) { Remove(0, ts0); done.Add($"trimmed start to {ts0:0.##} s"); }
             if (Num(a, "trim_end") is double te && te < p.Meta.Duration) { Remove(te, p.Meta.Duration); done.Add($"trimmed end at {te:0.##} s"); }
             if (e.Clips.All(c => c.Removed)) throw new InvalidOperationException("That would remove the whole video.");
+
+            if (a["audio"] is JsonObject audioArgs)
+            {
+                foreach (var (key, node) in audioArgs)
+                {
+                    if (node is not JsonObject t) continue;
+                    AudioTrackId id = key.ToLowerInvariant() switch
+                    {
+                        "mic" or "microphone" => AudioTrackId.Mic,
+                        "music" => AudioTrackId.Music,
+                        "system" or "video" => AudioTrackId.System,
+                        _ => throw new ArgumentException($"Unknown audio track \"{key}\" (use mic, system or music).")
+                    };
+                    var tr = e.Track(id);
+                    if (Num(t, "volume") is double vol) e.SetVolume(id, Math.Clamp(vol, 0, id == AudioTrackId.Music ? 1 : 2));
+                    if (Bool(t, "muted") is bool mu) tr.Muted = mu;
+                    if (Num(t, "fade_in") is double fi) tr.FadeIn = Math.Clamp(fi, 0, 30);
+                    if (Num(t, "fade_out") is double fo) tr.FadeOut = Math.Clamp(fo, 0, 30);
+                    if (Bool(t, "removed") is bool rm)
+                    {
+                        if (id == AudioTrackId.Music && rm) e.Style.MusicPath = null;
+                        else tr.Removed = rm;
+                    }
+                    done.Add($"audio {ProjectEdits.Key(id)} updated");
+                }
+            }
 
             if (Bool(a, "speed_up_idle") is bool idle)
             {

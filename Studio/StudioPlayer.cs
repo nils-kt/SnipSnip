@@ -73,7 +73,11 @@ namespace SnipSnip
         }
 
         /// <summary>Aktuelles Bild neu zeichnen (nach Änderungen am Stil oder an der Bearbeitung).</summary>
-        public void Refresh() => Seek(OutTime);
+        public void Refresh()
+        {
+            Seek(OutTime);
+            _ = SyncMusicAsync();
+        }
 
         public void Play()
         {
@@ -224,36 +228,74 @@ namespace SnipSnip
 
         // ------------------------------------------------------------------ Ton
 
+        /// <summary>
+        /// Jede Tonspur einmal als 48-kHz-Stereo-WAV vorbereiten (zwischengespeichert im Projektordner);
+        /// gemischt wird live, damit Lautstärke, Stumm und Blenden sofort hörbar sind.
+        /// </summary>
         async Task PrepareAudioAsync()
         {
             try
             {
-                var inputs = new System.Collections.Generic.List<string>();
-                if (p.Meta.SourceFile != null) inputs.Add(p.Meta.SourceFile);
-                if (p.SystemAudio != null && File.Exists(p.SystemAudio)) inputs.Add(p.SystemAudio);
-                if (p.MicAudio != null && File.Exists(p.MicAudio)) inputs.Add(p.MicAudio);
-                if (inputs.Count == 0) return;
-
-                string wav = Path.Combine(p.Dir, "preview.wav");
-                if (!File.Exists(wav))
-                {
-                    var args = new System.Collections.Generic.List<string>();
-                    foreach (var i in inputs) { args.Add("-i"); args.Add(i); }
-                    if (inputs.Count > 1) args.AddRange(new[] { "-filter_complex", $"amix=inputs={inputs.Count}:duration=longest:normalize=0" });
-                    else args.Add("-vn");
-                    args.AddRange(new[] { "-ar", "48000", "-ac", "2", wav });
-                    await FFmpeg.RunAsync(args);
-                }
-                var reader = new WaveFileReader(wav);
-                audio = new SeekableAudio(reader, p);
+                var a = new SeekableAudio(p);
+                string? sys = p.Meta.SourceFile ?? (p.SystemAudio != null && File.Exists(p.SystemAudio) ? p.SystemAudio : null);
+                if (sys != null) await AddPreviewTrackAsync(a, AudioTrackId.System, sys, "preview_system.wav");
+                if (p.MicAudio != null && File.Exists(p.MicAudio)) await AddPreviewTrackAsync(a, AudioTrackId.Mic, p.MicAudio, "preview_mic.wav");
+                audio = a;
+                await SyncMusicAsync();
                 var wo = new NAudio.Wave.WasapiOut(NAudio.CoreAudioApi.AudioClientShareMode.Shared, 120);
-                wo.Init(audio.ToWaveProvider());
+                wo.Init(a.ToWaveProvider());
                 waveOut = wo;
-                if (playing) { audio.SeekTo(p.SourceAt(OutTime)); wo.Play(); }
+                if (playing) { a.SeekTo(p.SourceAt(OutTime)); wo.Play(); }
             }
             catch (Exception ex) { Debug.WriteLine("Vorschau-Ton: " + ex.Message); }
         }
 
+        async Task AddPreviewTrackAsync(SeekableAudio a, AudioTrackId id, string source, string name)
+        {
+            try
+            {
+                string wav = await PreviewWavAsync(source, Path.Combine(p.Dir, name));
+                a.Add(id, wav);
+            }
+            catch (Exception ex) { Debug.WriteLine($"Vorschau-Ton {id}: {ex.Message}"); }
+        }
+
+        async Task<string> PreviewWavAsync(string source, string wav)
+        {
+            if (File.Exists(wav)) return wav;
+            string tmp = wav + ".tmp.wav";
+            var args = new List<string>();
+            if (source.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)) args.AddRange(new[] { "-ignore_length", "1" });
+            args.AddRange(new[] { "-y", "-i", source, "-vn", "-ar", "48000", "-ac", "2", tmp });
+            await FFmpeg.RunAsync(args);
+            File.Move(tmp, wav, true);
+            return wav;
+        }
+
+        string? loadingMusic;
+
+        /// <summary>Hintergrundmusik der Vorschau an den Stil anpassen (gewählt, gewechselt, entfernt).</summary>
+        async Task SyncMusicAsync()
+        {
+            var a = audio;
+            if (a == null) return;
+            string? path = p.Edits.Style.MusicPath;
+            if (path != null && !File.Exists(path)) path = null;
+            if (path == a.MusicSource || path == loadingMusic) return;
+            if (path == null) { a.SetMusic(null, null); return; }
+            loadingMusic = path;
+            try
+            {
+                // pro Musikdatei eine eigene Vorschau (Name aus dem Pfad), alte aufräumen
+                string name = $"preview_music_{(uint)StringComparer.OrdinalIgnoreCase.GetHashCode(path):x8}.wav";
+                foreach (var old in Directory.GetFiles(p.Dir, "preview_music_*.wav"))
+                    if (!Path.GetFileName(old).Equals(name, StringComparison.OrdinalIgnoreCase)) try { File.Delete(old); } catch { }
+                string wav = await PreviewWavAsync(path, Path.Combine(p.Dir, name));
+                if (p.Edits.Style.MusicPath == path) a.SetMusic(path, wav);
+            }
+            catch (Exception ex) { Debug.WriteLine("Vorschau-Musik: " + ex.Message); }
+            finally { if (loadingMusic == path) loadingMusic = null; }
+        }
         public void Dispose()
         {
             running = false;
@@ -266,78 +308,187 @@ namespace SnipSnip
         }
     }
 
-    /// <summary>Tonquelle mit Springen und Stummschaltung (für die Vorschau).</summary>
+    /// <summary>
+    /// Ton der Vorschau: mischt die Spuren live (Lautstärke, stumm, Ein-/Ausblenden, Musik mit einfachem Ducking,
+    /// Klick-Geräusche). Die Position ist Quellzeit; Musik läuft wie im Export in Ausgabezeit und in Schleife.
+    /// </summary>
     internal sealed class SeekableAudio : ISampleProvider, IDisposable
     {
-        readonly WaveFileReader reader;
-        readonly ISampleProvider samples;
-        readonly object gate = new();
-        readonly StudioProject? project;
-        List<(double T, float[] Samples)>? clicks;
-        public bool Muted { get; set; }
-        public bool SpeedMute { get; set; }
-
-        public SeekableAudio(WaveFileReader r, StudioProject? project = null)
+        sealed class Source
         {
-            reader = r;
-            samples = r.ToSampleProvider();
-            this.project = project;
+            public required AudioTrackId Id;
+            public required WaveFileReader Reader;
+            public required ISampleProvider Samples;
         }
 
-        public WaveFormat WaveFormat => samples.WaveFormat;
+        const int Rate = 48000, Channels = 2;
+        readonly List<Source> sources = new();
+        Source? music;
+        readonly object gate = new();
+        readonly StudioProject project;
+        List<(double T, float[] Samples)>? clicks;
+        float[] tmp = Array.Empty<float>();
+        double pos, duck = 1;
+        public bool Muted { get; set; }
+        public bool SpeedMute { get; set; }
+        /// <summary>Datei der geladenen Musik (null = keine).</summary>
+        public string? MusicSource { get; private set; }
+
+        public SeekableAudio(StudioProject project) => this.project = project;
+
+        public WaveFormat WaveFormat { get; } = WaveFormat.CreateIeeeFloatWaveFormat(Rate, Channels);
+
+        static Source Open(AudioTrackId id, string wav)
+        {
+            var r = new WaveFileReader(wav);
+            ISampleProvider s = r.ToSampleProvider();
+            if (s.WaveFormat.Channels == 1) s = new NAudio.Wave.SampleProviders.MonoToStereoSampleProvider(s);
+            return new Source { Id = id, Reader = r, Samples = s };
+        }
+
+        public void Add(AudioTrackId id, string wav)
+        {
+            var src = Open(id, wav);
+            lock (gate)
+            {
+                src.Reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(pos, src.Reader.TotalTime.TotalSeconds));
+                sources.Add(src);
+            }
+        }
+
+        public void SetMusic(string? source, string? wav)
+        {
+            var src = wav != null ? Open(AudioTrackId.Music, wav) : null;
+            lock (gate)
+            {
+                music?.Reader.Dispose();
+                music = src;
+                MusicSource = source;
+            }
+        }
 
         public double Position
         {
-            get { lock (gate) return reader.CurrentTime.TotalSeconds; }
+            get { lock (gate) return pos; }
         }
 
         public void SeekTo(double seconds)
         {
-            lock (gate) reader.CurrentTime = TimeSpan.FromSeconds(Math.Clamp(seconds, 0, reader.TotalTime.TotalSeconds));
+            lock (gate)
+            {
+                pos = Math.Max(0, seconds);
+                foreach (var s in sources) s.Reader.CurrentTime = TimeSpan.FromSeconds(Math.Min(pos, s.Reader.TotalTime.TotalSeconds));
+            }
         }
 
         public int Read(float[] buffer, int offset, int count)
         {
-            int n;
-            double t0;
+            count -= count % Channels;
+            Array.Clear(buffer, offset, count);
+            int frames = count / Channels;
+            if (tmp.Length < count) tmp = new float[count];
             lock (gate)
             {
-                t0 = reader.CurrentTime.TotalSeconds;
-                n = samples.Read(buffer, offset, count);
+                double t0 = pos, t1 = pos + frames / (double)Rate;
+                try
+                {
+                    var ed = project.Edits;
+                    double outDur = project.OutputDuration;
+                    double o0 = project.OutputAt(t0) ?? -1, o1 = project.OutputAt(t1) ?? o0;
+                    foreach (var s in sources)
+                    {
+                        // immer lesen, damit die Spur ihre Position behält
+                        int n = s.Samples.Read(tmp, 0, count);
+                        if (Muted || SpeedMute || n <= 0) continue;
+                        double g = ed.Gain(s.Id);
+                        if (g < 0.001) continue;
+                        Mix(buffer, offset, n, g * Fade(ed, s.Id, o0, outDur), g * Fade(ed, s.Id, o1, outDur));
+                    }
+                    if (music != null && o0 >= 0 && !Muted) MixMusic(buffer, offset, count, o0, o1, outDur, t0);
+                    if (!Muted && !SpeedMute) MixClicks(buffer, offset, count, t0);
+                }
+                catch (Exception ex) { Debug.WriteLine("Vorschau-Mix: " + ex.Message); }
+                pos = t1;
             }
-            MixClicks(buffer, offset, n, t0);
-            if (Muted || SpeedMute) Array.Clear(buffer, offset, n);
-            if (n < count) { Array.Clear(buffer, offset + n, count - n); n = count; } // Stille statt Ende
-            return n;
+            for (int i = offset; i < offset + count; i++) buffer[i] = Math.Clamp(buffer[i], -1f, 1f);
+            return count;
         }
 
-        /// <summary>Klick-Geräusche wie im Export dazumischen (Zeit = Aufnahmezeit der Vorschau-Tonspur).</summary>
+        static double Fade(ProjectEdits ed, AudioTrackId id, double outT, double outDur) => outT < 0 ? 1 : ed.FadeAt(id, outT, outDur);
+
+        /// <summary>tmp mit linear übergehender Verstärkung g0 → g1 dazumischen.</summary>
+        void Mix(float[] buffer, int offset, int n, double g0, double g1)
+        {
+            int frames = n / Channels;
+            for (int f = 0; f < frames; f++)
+            {
+                float g = (float)(g0 + (g1 - g0) * f / Math.Max(1, frames));
+                for (int c = 0; c < Channels; c++) buffer[offset + f * Channels + c] += tmp[f * Channels + c] * g;
+            }
+        }
+
+        void MixMusic(float[] buffer, int offset, int count, double o0, double o1, double outDur, double srcT)
+        {
+            var ed = project.Edits;
+            double g = ed.Gain(AudioTrackId.Music);
+            double len = music!.Reader.TotalTime.TotalSeconds;
+            if (g < 0.001 || len < 0.1 || o0 >= outDur) return;
+            // Musik in Ausgabezeit; bei Sprüngen (Schnitt, Spulen) nachführen
+            double want = o0 % len;
+            if (Math.Abs(music.Reader.CurrentTime.TotalSeconds - want) > 0.08) music.Reader.CurrentTime = TimeSpan.FromSeconds(want);
+            int n = music.Samples.Read(tmp, 0, count);
+            if (n < count)
+            {
+                // Ende der Datei: von vorn weiter
+                music.Reader.CurrentTime = TimeSpan.Zero;
+                int m = music.Samples.Read(tmp, n, count - n);
+                n += Math.Max(0, m);
+            }
+            // einfaches Ducking: bei Sprache im Mikrofon leiser (wie im Export, nur gröber)
+            double target = 1;
+            if (ed.Style.MusicDucking && ed.Gain(AudioTrackId.Mic) > 0.001)
+            {
+                var sp = project.Speech;
+                int k = (int)(srcT * 10);
+                if (k >= 0 && k < sp.Length && sp[k] > 0.5) target = 0.3;
+            }
+            double d0 = duck;
+            duck += (target - duck) * (target < duck ? 0.5 : 0.15);
+            Mix(buffer, offset, n, g * d0 * ed.FadeAt(AudioTrackId.Music, o0, outDur), g * duck * ed.FadeAt(AudioTrackId.Music, o1, outDur));
+        }
+
+        /// <summary>Klick-Geräusche wie im Export dazumischen (Zeit = Aufnahmezeit).</summary>
         void MixClicks(float[] buffer, int offset, int n, double t0)
         {
-            var st = project?.Edits.Style;
-            if (st == null || !st.ClickSound || n <= 0) return;
-            clicks ??= ClickSound.Events(project!.Input);
-            int ch = WaveFormat.Channels, rate = WaveFormat.SampleRate;
-            int frames = n / ch;
-            double t1 = t0 + frames / (double)rate;
+            var st = project.Edits.Style;
+            if (!st.ClickSound || n <= 0) return;
+            clicks ??= ClickSound.Events(project.Input);
+            int frames = n / Channels;
+            double t1 = t0 + frames / (double)Rate;
             float vol = (float)Math.Clamp(st.ClickVolume, 0, 1.5);
-            double step = ClickSound.Rate / (double)rate;
             foreach (var (t, snap) in clicks)
             {
                 double len = snap.Length / (double)ClickSound.Rate;
                 if (t + len < t0 || t >= t1) continue;
                 for (int fIdx = 0; fIdx < frames; fIdx++)
                 {
-                    double k = ((t0 + fIdx / (double)rate) - t) * ClickSound.Rate;
+                    double k = ((t0 + fIdx / (double)Rate) - t) * ClickSound.Rate;
                     if (k < 0) continue;
                     int ki = (int)k;
                     if (ki >= snap.Length) break;
                     float v = snap[ki] * vol;
-                    for (int c = 0; c < ch; c++) buffer[offset + fIdx * ch + c] += v;
+                    for (int c = 0; c < Channels; c++) buffer[offset + fIdx * Channels + c] += v;
                 }
             }
         }
 
-        public void Dispose() => reader.Dispose();
+        public void Dispose()
+        {
+            lock (gate)
+            {
+                foreach (var s in sources) s.Reader.Dispose();
+                music?.Reader.Dispose();
+            }
+        }
     }
 }

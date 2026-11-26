@@ -19,7 +19,7 @@ namespace SnipSnip
     {
         public const string Extension = ".snipsnip";
 
-        /// <summary>Dateien, die nur Zwischenspeicher sind und neu erzeugt werden.</summary>
+        /// <summary>Dateien, die nur Zwischenspeicher sind und neu erzeugt werden (dazu alle preview*-Tondateien).</summary>
         static readonly HashSet<string> Skip = new(StringComparer.OrdinalIgnoreCase) { "preview.wav", "thumb.jpg" };
 
         static readonly string[] StylePaths = { "ImagePath", "MusicPath", "WatermarkPath" };
@@ -36,7 +36,7 @@ namespace SnipSnip
                 try
                 {
                     var files = Directory.GetFiles(p.Dir, "*", SearchOption.AllDirectories)
-                        .Where(f => !Skip.Contains(Path.GetFileName(f)))
+                        .Where(f => !Skip.Contains(Path.GetFileName(f)) && !Path.GetFileName(f).StartsWith("preview", StringComparison.OrdinalIgnoreCase))
                         .Where(f => !Path.GetFileName(f).Equals("meta.json", StringComparison.OrdinalIgnoreCase) && !Path.GetFileName(f).Equals("project.json", StringComparison.OrdinalIgnoreCase))
                         .ToList();
 

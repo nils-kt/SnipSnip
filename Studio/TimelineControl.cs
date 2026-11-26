@@ -2,23 +2,25 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace SnipSnip
 {
-    public enum TrackKind { None, Clip, Zoom, Mask, Text, Layout }
+    public enum TrackKind { None, Clip, Zoom, Mask, Text, Layout, Audio }
 
     /// <summary>
     /// Zeitleiste des Studios (Quellzeit): Clip-Spur mit Vorschaubildern, Schnitten und Tempo,
-    /// Zoom-, Masken-, Text- und Layout-Spur. Segmente lassen sich auswählen, verschieben und in der Länge ändern;
+    /// Zoom-, Masken-, Text- und Layout-Spur sowie die Tonspuren (Mikrofon, System-Ton, Musik) als Wellenform. Segmente lassen sich auswählen, verschieben und in der Länge ändern;
     /// Doppelklick in eine leere Stelle legt ein neues Segment an.
     /// </summary>
     public sealed class TimelineControl : FrameworkElement
     {
-        const double RulerH = 22, ClipH = 58, RowH = 26, Gap = 6, Pad = 12;
+        const double RulerH = 22, ClipH = 58, RowH = 26, Gap = 6, Pad = 12, AudioH = 24, AudioGap = 4;
 
         StudioProject? project;
         public List<BitmapSource> Thumbs { get; } = new();
@@ -35,7 +37,7 @@ namespace SnipSnip
         public event Action? SelectionChanged;
 
         // Ziehen
-        enum DragMode { None, Seek, Move, ResizeStart, ResizeEnd }
+        enum DragMode { None, Seek, Move, ResizeStart, ResizeEnd, FadeIn, FadeOut }
         DragMode drag;
         double dragOffset;
         bool dragStarted;
@@ -84,6 +86,89 @@ namespace SnipSnip
         public void SetProject(StudioProject p)
         {
             project = p;
+            LoadAudio();
+            InvalidateMeasure();
+            InvalidateVisual();
+        }
+
+        // ================================================================== Tonspuren
+
+        sealed class AudioTrack
+        {
+            public required string Label, File;
+            public required AudioTrackId Id;
+            public required Brush Fill;
+            public bool Music => Id == AudioTrackId.Music;
+            /// <summary>null = wird noch geladen.</summary>
+            public float[]? Peaks;
+            public StreamGeometry? Wave;
+            public string WaveKey = "";
+        }
+
+        readonly List<AudioTrack> audio = new();
+        CancellationTokenSource? audioCts;
+        string? musicFile;
+
+        static readonly Brush MicFill = Frozen(new SolidColorBrush(Color.FromRgb(0x4F, 0xD1, 0xC5)));
+        static readonly Brush SystemFill = Frozen(new SolidColorBrush(Color.FromRgb(0x8E, 0xA4, 0xFF)));
+        static readonly Brush MusicFill = Frozen(new SolidColorBrush(Color.FromRgb(0xC0, 0x84, 0xFC)));
+        static readonly Brush LabelBg = Frozen(new SolidColorBrush(Color.FromArgb(0xC8, 0x12, 0x12, 0x16)));
+
+        /// <summary>Sichtbare Tonspuren (ohne entfernte und ohne die, die sich als leer herausgestellt haben).</summary>
+        List<AudioTrack> AudioRows => project == null ? new() : audio
+            .Where(a => (a.Peaks == null || a.Peaks.Length > 0) && !project.Edits.Peek(a.Id).Removed).ToList();
+        int lastAudioRows = -1;
+
+        /// <summary>Tonspuren, die es im Projekt gibt (für „Entfernte Spuren wiederherstellen“).</summary>
+        public IEnumerable<(AudioTrackId Id, string Label)> AudioTracks => audio.Select(a => (a.Id, a.Label));
+
+        public static string AudioLabel(StudioProject p, AudioTrackId id) =>
+            id == AudioTrackId.Mic ? "Mikrofon" : id == AudioTrackId.Music ? "Musik" : p.Meta.SourceFile != null ? "Video-Ton" : "System-Ton";
+
+        void LoadAudio()
+        {
+            audioCts?.Cancel();
+            audioCts = new CancellationTokenSource();
+            audio.Clear();
+            musicFile = null;
+            if (project == null) return;
+            var p = project;
+            if (p.Meta.SourceFile != null)
+                audio.Add(new AudioTrack { Label = "Video-Ton", File = p.Meta.SourceFile, Id = AudioTrackId.System, Fill = SystemFill });
+            if (p.SystemAudio != null && System.IO.File.Exists(p.SystemAudio))
+                audio.Add(new AudioTrack { Label = "System-Ton", File = p.SystemAudio, Id = AudioTrackId.System, Fill = SystemFill });
+            if (p.MicAudio != null && System.IO.File.Exists(p.MicAudio))
+                audio.Add(new AudioTrack { Label = "Mikrofon", File = p.MicAudio, Id = AudioTrackId.Mic, Fill = MicFill });
+            AddMusic();
+            foreach (var a in audio) LoadPeaks(a, audioCts.Token);
+        }
+
+        void AddMusic()
+        {
+            musicFile = project?.Edits.Style.MusicPath;
+            if (musicFile == null || !System.IO.File.Exists(musicFile)) return;
+            audio.Add(new AudioTrack { Label = "Musik", File = musicFile, Id = AudioTrackId.Music, Fill = MusicFill });
+        }
+
+        /// <summary>Musik gewechselt oder entfernt: nur diese Spur neu laden.</summary>
+        void SyncMusic()
+        {
+            if (project == null || project.Edits.Style.MusicPath == musicFile) return;
+            audio.RemoveAll(a => a.Music);
+            AddMusic();
+            var m = audio.FirstOrDefault(a => a.Music);
+            if (m != null && audioCts != null) LoadPeaks(m, audioCts.Token);
+            InvalidateMeasure();
+        }
+
+        async void LoadPeaks(AudioTrack a, CancellationToken ct)
+        {
+            if (AudioPeaks.DocsOverride != null) { a.Peaks = AudioPeaks.DocsOverride(a.File); return; }
+            float[] peaks;
+            try { peaks = await AudioPeaks.LoadAsync(a.File, ct); }
+            catch { peaks = Array.Empty<float>(); }
+            if (ct.IsCancellationRequested) return;
+            a.Peaks = peaks;
             InvalidateMeasure();
             InvalidateVisual();
         }
@@ -112,9 +197,14 @@ namespace SnipSnip
         double MaskTop => ZoomTop + RowH + Gap;
         double TextTop => MaskTop + RowH + Gap;
         double LayoutTop => TextTop + RowH + Gap;
+        double AudioTop => (ShowLayoutRow ? LayoutTop + RowH : TextTop + RowH) + Gap + 2;
 
-        protected override Size MeasureOverride(Size available) =>
-            new(double.IsInfinity(available.Width) ? 600 : available.Width, (ShowLayoutRow ? LayoutTop + RowH : TextTop + RowH) + 8);
+        protected override Size MeasureOverride(Size available)
+        {
+            int n = AudioRows.Count;
+            double bottom = n > 0 ? AudioTop + n * AudioH + (n - 1) * AudioGap : AudioTop - Gap - 2;
+            return new(double.IsInfinity(available.Width) ? 600 : available.Width, bottom + 8);
+        }
 
         // ================================================================== Zeichnen
 
@@ -203,6 +293,13 @@ namespace SnipSnip
             if (ShowLayoutRow)
                 DrawRow(dc, LayoutTop, "Layout", project.Edits.Layouts.Select(l => (l.Start, l.End, LayoutName(l.Layout), LayoutFill)).ToList(), TrackKind.Layout, dpi);
 
+            // Tonspuren
+            SyncMusic();
+            var rows = AudioRows;
+            if (rows.Count != lastAudioRows) { lastAudioRows = rows.Count; InvalidateMeasure(); }
+            for (int i = 0; i < rows.Count; i++)
+                DrawAudio(dc, rows[i], AudioTop + i * (AudioH + AudioGap), dpi);
+
             // Abspielposition
             double px = X(Position);
             dc.DrawRectangle(Brushes.White, null, new Rect(px - 1, RulerH - 4, 2, ActualHeight - RulerH + 4));
@@ -248,6 +345,127 @@ namespace SnipSnip
             }
         }
 
+        static readonly Brush FadeShade = Frozen(new SolidColorBrush(Color.FromArgb(0x70, 0x08, 0x08, 0x0A)));
+        static readonly Pen FadePen = FrozenPen(new SolidColorBrush(Color.FromArgb(0xE0, 0xFF, 0xFF, 0xFF)), 1.3);
+
+        /// <summary>x-Positionen der Blenden-Griffe einer Spur (Ende der Einblendung, Beginn der Ausblendung).</summary>
+        (double InX, double OutX) FadeHandles(AudioTrackId id)
+        {
+            var p = project!;
+            var t = p.Edits.Peek(id);
+            double outDur = p.OutputDuration;
+            double fi = Math.Min(t.FadeIn, outDur / 2), fo = Math.Min(t.FadeOut, outDur / 2);
+            return (X(p.SourceAt(fi)), X(fo > 0.001 ? p.SourceAt(outDur - fo) : p.Kept.LastOrDefault()?.End ?? Duration));
+        }
+
+        void DrawAudio(DrawingContext dc, AudioTrack a, double top, double dpi)
+        {
+            var p = project!;
+            var ed = p.Edits;
+            var row = new Rect(Pad, top, Width0, AudioH);
+            var te = ed.Peek(a.Id);
+            double vol = ed.Volume(a.Id);
+            bool muted = ed.Gain(a.Id) < 0.001;
+            bool selected = SelectedKind == TrackKind.Audio && SelectedIndex == (int)a.Id;
+            dc.PushClip(new RectangleGeometry(row, 6, 6));
+            dc.DrawRectangle(RowBg, null, row);
+            if (a.Peaks is { Length: > 0 } peaks)
+            {
+                // Wellenform nur neu aufbauen, wenn sich Breite, Lautstärke, Blenden oder der Schnitt ändern
+                string key = $"{Width0:0.#}|{Duration:0.###}|{vol:0.###}|{te.FadeIn:0.##}|{te.FadeOut:0.##}|{peaks.Length}|"
+                    + string.Join(";", p.Kept.Select(c => $"{c.Start:0.###}-{c.End:0.###}x{c.Speed:0.##}"));
+                if (a.Wave == null || a.WaveKey != key)
+                {
+                    a.Wave = BuildWave(a, peaks, vol < 0.001 ? 1 : vol);
+                    a.WaveKey = key;
+                }
+                dc.PushTransform(new TranslateTransform(0, top));
+                dc.PushOpacity(muted ? 0.25 : 0.9);
+                dc.DrawGeometry(a.Fill, null, a.Wave);
+                dc.Pop();
+                dc.Pop();
+            }
+            // herausgeschnittene Abschnitte wie in der Clip-Spur
+            foreach (var c in ed.Clips.Where(c => c.Removed))
+            {
+                var r = new Rect(X(c.Start), top, Math.Max(0, X(c.End) - X(c.Start)), AudioH);
+                dc.DrawRectangle(Removed, null, r);
+                dc.DrawRectangle(Hatch, null, r);
+            }
+
+            // Blenden: abgedunkelte Rampe mit Linie
+            var (inX, outX) = FadeHandles(a.Id);
+            double x0 = X(p.Kept.FirstOrDefault()?.Start ?? 0), x1 = X(p.Kept.LastOrDefault()?.End ?? Duration);
+            if (te.FadeIn > 0.01) DrawRamp(dc, x0, inX, top, rising: true);
+            if (te.FadeOut > 0.01) DrawRamp(dc, outX, x1, top, rising: false);
+
+            string label = a.Label + (a.Peaks == null ? "  ·  wird geladen …" : muted ? "  ·  stumm" : Math.Abs(vol - 1) > 0.005 ? $"  ·  {vol * 100:0} %" : "");
+            var ft = Text(label, 10, muted ? Dim : Brushes.White, dpi);
+            var lr = new Rect(Math.Max(Pad + 4, Math.Min(inX + 4, Pad + Width0 - ft.Width - 14)), top + (AudioH - ft.Height - 2) / 2, ft.Width + 10, ft.Height + 2);
+            dc.DrawRoundedRectangle(LabelBg, null, lr, 4, 4);
+            dc.DrawText(ft, new Point(lr.X + 5, lr.Y + 1));
+            dc.Pop();
+
+            if (selected)
+            {
+                dc.DrawRoundedRectangle(null, SelPen, new Rect(row.X + 1, row.Y + 1, row.Width - 2, row.Height - 2), 6, 6);
+                // Griffe zum Ziehen der Blenden
+                foreach (double hx in new[] { inX, outX })
+                    dc.DrawEllipse(Brushes.White, FadePen, new Point(Math.Clamp(hx, Pad + 5, Pad + Width0 - 5), top + 5), 4.5, 4.5);
+            }
+        }
+
+        void DrawRamp(DrawingContext dc, double xa, double xb, double top, bool rising)
+        {
+            if (xb - xa < 1) return;
+            var g = new StreamGeometry();
+            using (var gc = g.Open())
+            {
+                // abgedunkelter Bereich über der Rampe
+                gc.BeginFigure(new Point(xa, top), true, true);
+                gc.PolyLineTo(rising
+                    ? new[] { new Point(xb, top), new Point(xa, top + AudioH) }
+                    : new[] { new Point(xb, top), new Point(xb, top + AudioH) }, false, false);
+            }
+            g.Freeze();
+            dc.DrawGeometry(FadeShade, null, g);
+            dc.DrawLine(FadePen, rising ? new Point(xa, top + AudioH) : new Point(xa, top), rising ? new Point(xb, top) : new Point(xb, top + AudioH));
+        }
+
+        /// <summary>Wellenform als Balken (gespiegelt um die Mitte) in Zeilen-Koordinaten; Blenden fließen in die Höhe ein.</summary>
+        StreamGeometry BuildWave(AudioTrack a, float[] peaks, double gain)
+        {
+            var p = project!;
+            const double Step = 2, Bar = 1.4;
+            double mid = AudioH / 2, half = AudioH / 2 - 2;
+            double musicLen = peaks.Length / (double)AudioPeaks.Rate;
+            double outDur = p.OutputDuration;
+            var g = new StreamGeometry();
+            using (var gc = g.Open())
+            {
+                for (double x = Pad; x < Pad + Width0; x += Step)
+                {
+                    double t0 = T(x), t1 = T(x + Step);
+                    double? o0 = p.OutputAt(t0);
+                    float peak;
+                    if (a.Music)
+                    {
+                        // Musik läuft in Ausgabezeit (und in Schleife) unter dem fertigen Video
+                        double? o1 = p.OutputAt(t1);
+                        if (o0 == null) continue;
+                        double m0 = o0.Value % musicLen, m1 = m0 + Math.Max(1.0 / AudioPeaks.Rate, (o1 ?? o0.Value) - o0.Value);
+                        peak = AudioPeaks.Max(peaks, m0, m1);
+                    }
+                    else peak = AudioPeaks.Max(peaks, t0, t1);
+                    double fade = o0 != null ? p.Edits.FadeAt(a.Id, o0.Value, outDur) : 1;
+                    double h = Math.Max(0.6, AudioPeaks.Height(peak, gain * fade) * half);
+                    gc.BeginFigure(new Point(x, mid - h), true, true);
+                    gc.PolyLineTo(new[] { new Point(x + Bar, mid - h), new Point(x + Bar, mid + h), new Point(x, mid + h) }, false, false);
+                }
+            }
+            g.Freeze();
+            return g;
+        }
         static readonly Pen KeyPen = FrozenPen(new SolidColorBrush(Color.FromArgb(0xC0, 0x30, 0x10, 0x18)), 1);
 
         static Pen FrozenPen(Brush b, double w)
@@ -347,12 +565,121 @@ namespace SnipSnip
             }
         }
 
+        // ================================================================== Tonspuren: Maus
+
+        /// <summary>Tonspur unter dem Punkt; Handle 1/2 = Griff der Ein-/Ausblendung (obere Zeilenhälfte).</summary>
+        (AudioTrack? Track, int Handle) AudioHit(Point pt)
+        {
+            if (project == null) return (null, 0);
+            var rows = AudioRows;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                double top = AudioTop + i * (AudioH + AudioGap);
+                if (pt.Y < top || pt.Y >= top + AudioH) continue;
+                if (pt.Y < top + AudioH * 0.55)
+                {
+                    var (inX, outX) = FadeHandles(rows[i].Id);
+                    if (Math.Abs(pt.X - Math.Clamp(inX, Pad + 5, Pad + Width0 - 5)) <= 7) return (rows[i], 1);
+                    if (Math.Abs(pt.X - Math.Clamp(outX, Pad + 5, Pad + Width0 - 5)) <= 7) return (rows[i], 2);
+                }
+                return (rows[i], 0);
+            }
+            return (null, 0);
+        }
+
+        /// <summary>Ausgabezeit an einer Quellzeit; in herausgeschnittenen Stellen die nächste behaltene.</summary>
+        double OutAt(double t)
+        {
+            var p = project!;
+            if (p.OutputAt(t) is double o) return o;
+            var next = p.Kept.FirstOrDefault(c => c.Start >= t);
+            return next != null ? p.OutputAt(next.Start) ?? 0 : p.OutputDuration;
+        }
+
+        void AudioEdit(AudioTrackId id, Action<AudioTrackEdit> apply)
+        {
+            if (project == null) return;
+            BeforeEdit?.Invoke();
+            apply(project.Edits.Track(id));
+            InvalidateVisual();
+            Edited?.Invoke();
+            Select(TrackKind.Audio, (int)id);
+        }
+
+        /// <summary>Spur entfernen: Musik wird abgewählt, Mikrofon/System-Ton ausgeblendet (wiederherstellbar im Ton-Reiter).</summary>
+        public void RemoveAudio(AudioTrackId id)
+        {
+            if (project == null) return;
+            BeforeEdit?.Invoke();
+            if (id == AudioTrackId.Music) project.Edits.Style.MusicPath = null;
+            else project.Edits.Track(id).Removed = true;
+            InvalidateMeasure();
+            InvalidateVisual();
+            Edited?.Invoke();
+            Select(TrackKind.None, -1);
+        }
+
+        public void RestoreAudio(AudioTrackId id)
+        {
+            if (project == null) return;
+            BeforeEdit?.Invoke();
+            project.Edits.Track(id).Removed = false;
+            InvalidateMeasure();
+            InvalidateVisual();
+            Edited?.Invoke();
+            Select(TrackKind.Audio, (int)id);
+        }
+
+        protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)
+        {
+            base.OnMouseRightButtonUp(e);
+            var (track, _) = AudioHit(e.GetPosition(this));
+            if (track == null || project == null) return;
+            var id = track.Id;
+            Select(TrackKind.Audio, (int)id);
+            var te = project.Edits.Peek(id);
+            var menu = new ContextMenu { PlacementTarget = this };
+            MenuItem Item(string header, Action click, bool check = false)
+            {
+                var mi = new MenuItem { Header = header, IsCheckable = check, IsChecked = check };
+                mi.Click += (_, _) => click();
+                return mi;
+            }
+            menu.Items.Add(Item(te.Muted ? "Ton einschalten" : "Stumm schalten", () => AudioEdit(id, t => t.Muted = !t.Muted)));
+            var fadeIn = new MenuItem { Header = "Einblenden" };
+            var fadeOut = new MenuItem { Header = "Ausblenden" };
+            foreach (double s in new[] { 0, 0.5, 1, 2, 3, 5 })
+            {
+                string h = s == 0 ? "Aus" : $"{s:0.#} s";
+                fadeIn.Items.Add(Item(h, () => AudioEdit(id, t => t.FadeIn = s), Math.Abs(te.FadeIn - s) < 0.05));
+                fadeOut.Items.Add(Item(h, () => AudioEdit(id, t => t.FadeOut = s), Math.Abs(te.FadeOut - s) < 0.05));
+            }
+            menu.Items.Add(fadeIn);
+            menu.Items.Add(fadeOut);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item($"{track.Label} entfernen", () => RemoveAudio(id)));
+            menu.IsOpen = true;
+            e.Handled = true;
+        }
+
         protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
         {
             base.OnMouseLeftButtonDown(e);
             if (project == null) return;
             Focus();
             var p = e.GetPosition(this);
+            var (aTrack, aHandle) = AudioHit(p);
+            if (aTrack != null)
+            {
+                // Tonspur: auswählen; an den Griffen die Blenden ziehen, sonst spulen
+                if (SelectedKind != TrackKind.Audio || SelectedIndex != (int)aTrack.Id) Select(TrackKind.Audio, (int)aTrack.Id);
+                drag = aHandle == 1 ? DragMode.FadeIn : aHandle == 2 ? DragMode.FadeOut : DragMode.Seek;
+                dragStarted = false;
+                CaptureMouse();
+                if (drag == DragMode.Seek) SeekRequested?.Invoke(T(p.X));
+                e.Handled = true;
+                return;
+            }
             var hit = HitTest(p);
 
             if (e.ClickCount == 2 && hit.Kind is TrackKind.Zoom or TrackKind.Mask or TrackKind.Text or TrackKind.Layout && hit.Index < 0)
@@ -391,12 +718,26 @@ namespace SnipSnip
             var p = e.GetPosition(this);
             if (drag == DragMode.None)
             {
+                var ah = AudioHit(p);
+                if (ah.Track != null) { Cursor = ah.Handle != 0 ? Cursors.SizeWE : Cursors.Hand; return; }
                 var hit = HitTest(p);
                 Cursor = hit.StartEdge || hit.EndEdge ? Cursors.SizeWE : hit.Index >= 0 && hit.Kind != TrackKind.Clip ? Cursors.Hand : Cursors.Arrow;
                 return;
             }
             double t = T(p.X);
             if (drag == DragMode.Seek) { SeekRequested?.Invoke(t); return; }
+
+            if (drag is DragMode.FadeIn or DragMode.FadeOut)
+            {
+                if (!dragStarted) { BeforeEdit?.Invoke(); dragStarted = true; }
+                var te = project.Edits.Track((AudioTrackId)SelectedIndex);
+                double outDur = project.OutputDuration, o = OutAt(t), max = Math.Min(30, outDur / 2);
+                if (drag == DragMode.FadeIn) te.FadeIn = Math.Round(Math.Clamp(o, 0, max), 1);
+                else te.FadeOut = Math.Round(Math.Clamp(outDur - o, 0, max), 1);
+                InvalidateVisual();
+                Edited?.Invoke();
+                return;
+            }
 
             if (!dragStarted) { BeforeEdit?.Invoke(); dragStarted = true; }
             var segs = Segments(SelectedKind);
@@ -428,8 +769,11 @@ namespace SnipSnip
             base.OnMouseLeftButtonUp(e);
             if (drag != DragMode.None)
             {
+                bool fade = drag is DragMode.FadeIn or DragMode.FadeOut && dragStarted;
                 drag = DragMode.None;
                 ReleaseMouseCapture();
+                // Seitenleiste mit den neuen Blenden-Werten auffrischen
+                if (fade) SelectionChanged?.Invoke();
             }
         }
 
@@ -480,6 +824,9 @@ namespace SnipSnip
                     BeforeEdit?.Invoke(); project.Edits.Texts.RemoveAt(SelectedIndex); break;
                 case TrackKind.Layout when SelectedIndex < project.Edits.Layouts.Count:
                     BeforeEdit?.Invoke(); project.Edits.Layouts.RemoveAt(SelectedIndex); break;
+                case TrackKind.Audio:
+                    RemoveAudio((AudioTrackId)SelectedIndex);
+                    return;
                 case TrackKind.Clip when SelectedIndex < project.Edits.Clips.Count:
                 {
                     var c = project.Edits.Clips[SelectedIndex];

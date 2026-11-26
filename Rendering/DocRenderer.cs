@@ -221,7 +221,10 @@ namespace SnipSnip
             sb.AppendLine($"{{\"t\":{F(9.8)},\"k\":\"Strg + C\"}}");
             File.WriteAllText(IOPath.Combine(dir, "events.jsonl"), sb.ToString());
             File.WriteAllText(IOPath.Combine(dir, "cursors.json"), "[{\"Id\":0,\"Kind\":\"arrow\",\"HotX\":0,\"HotY\":0,\"File\":\"cursors/0.png\"}]");
-            StudioProject.SaveMeta(dir, new RecordingMeta { Width = w, Height = h, Fps = 30, Duration = 24, HasCursor = true, Complete = true });
+            // Tonspuren: leere WAV-Dateien, die Wellenform liefert AudioPeaks.DocsOverride
+            foreach (var name in new[] { "mic.wav", "system.wav" })
+                using (var wf = new NAudio.Wave.WaveFileWriter(IOPath.Combine(dir, name), new NAudio.Wave.WaveFormat(48000, 16, 1))) { }
+            StudioProject.SaveMeta(dir, new RecordingMeta { Width = w, Height = h, Fps = 30, Duration = 24, HasCursor = true, HasMic = true, HasSystemAudio = true, Complete = true });
 
             var p = StudioProject.Load(dir);
             var st = p.Edits.Style;
@@ -247,6 +250,35 @@ namespace SnipSnip
                 if (c.Start >= 20.9) c.Speed = 2;
             }
             return p;
+        }
+
+        /// <summary>Erfundene Pegel: Sprache in Sätzen mit Pausen (Mikrofon), leise Klicks und Hinweistöne (System).</summary>
+        static float[] DemoPeaks(string file)
+        {
+            bool mic = IOPath.GetFileName(file).StartsWith("mic", StringComparison.OrdinalIgnoreCase);
+            var rng = new Random(mic ? 7 : 11);
+            var v = new float[24 * AudioPeaks.Rate];
+            for (int i = 0; i < v.Length; i++)
+            {
+                double t = i / (double)AudioPeaks.Rate;
+                double noise = 0.004 + rng.NextDouble() * 0.004;
+                if (mic)
+                {
+                    // Sätze von 2–4 s, dazwischen Atempausen; Silben mit ~4,5 Hz
+                    double phrase = (t % 5.3) / 5.3;
+                    bool talking = phrase > 0.08 && phrase < 0.78 && !(t > 16.2 && t < 18.4);
+                    double syl = Math.Pow(Math.Max(0, Math.Sin(t * 2 * Math.PI * 4.4 + Math.Sin(t * 1.7) * 2)), 1.6);
+                    v[i] = (float)(talking ? noise + (0.12 + 0.5 * syl) * (0.6 + 0.4 * rng.NextDouble()) : noise);
+                }
+                else
+                {
+                    double blip = 0;
+                    foreach (double c in new[] { 3.4, 9.2, 14.0 }) if (t >= c && t < c + 0.06) blip = 0.18;
+                    if (t >= 12.9 && t < 13.5) blip = 0.25 * Math.Exp(-(t - 12.9) * 6);
+                    v[i] = (float)(noise * 2 + blip);
+                }
+            }
+            return v;
         }
 
         static SkiaSharp.SKImage ToSk(BitmapSource b)
@@ -279,6 +311,7 @@ namespace SnipSnip
             }
             var screenBmp = Crop(appWin);
             using var screen = ToSk(screenBmp);
+            AudioPeaks.DocsOverride = DemoPeaks;
             var p = DemoProject(screenBmp, appWin, bounds, demo, out string dir);
             try
             {
@@ -304,6 +337,17 @@ namespace SnipSnip
                     () => win.DocsSetup(preview, thumbs, "background", TrackKind.Zoom, zoomIdx, 10.0));
                 Save(shot, outDir, "studio.png");
                 win.Close();
+
+                // 2b) Tonspuren: Mikrofon markiert, mit Einblendung; System-Ton etwas leiser
+                p.Edits.Track(AudioTrackId.Mic).FadeIn = 1.5;
+                p.Edits.Track(AudioTrackId.Mic).FadeOut = 1;
+                p.Edits.Style.SystemVolume = 0.6;
+                var winA = new StudioWindow(p);
+                var rootA = Detach(winA, close: false);
+                var shotA = Rasterize(Framed(rootA, $"SnipSnip Studio – {p.Name}", 1440, 880, wallpaper), 1520, 960,
+                    () => winA.DocsSetup(preview, thumbs, "audio", TrackKind.Audio, (int)AudioTrackId.Mic, 10.0));
+                Save(shotA, outDir, "studio-audio.png");
+                winA.Close();
 
                 // 3) Effekte: 3D-Neigung, Bauchbinde, Hinweis, moderner Cursor mit Leuchtkreis
                 var st = p.Edits.Style;

@@ -189,10 +189,28 @@ namespace SnipSnip
         static async Task<string?> BuildAudioAsync(StudioProject p, string tmp, double dur, CancellationToken ct)
         {
             var st = p.Edits.Style;
+            var ed = p.Edits;
             var args = new List<string>();
             var f = new StringBuilder();
             var srcLabels = new List<string>();
             int idx = 0;
+            var kept = p.Kept.ToList();
+
+            // Eine Quelle: Lautstärke, schneiden (Clips, Tempo) und in Ausgabezeit ein-/ausblenden
+            void AddSource(AudioTrackId id, string pre)
+            {
+                var t = ed.Peek(id);
+                f.Append($"[{idx}:a]aresample=48000,{pre}volume={N(ed.Gain(id))},asplit={kept.Count}" + string.Concat(kept.Select((_, i) => $"[s{idx}_{i}]")) + ";");
+                for (int i = 0; i < kept.Count; i++)
+                {
+                    var c = kept[i];
+                    string tempo = Math.Abs(c.Speed - 1) > 0.01 ? $",atempo={N(Math.Clamp(c.Speed, 0.5, 100))}" : "";
+                    f.Append($"[s{idx}_{i}]atrim=start={N(c.Start)}:end={N(c.End)},asetpts=PTS-STARTPTS{tempo}[e{idx}_{i}];");
+                }
+                f.Append(string.Concat(kept.Select((_, i) => $"[e{idx}_{i}]")) + $"concat=n={kept.Count}:v=0:a=1{TrackFades(t, dur)}[a{idx}];");
+                srcLabels.Add($"[a{idx}]");
+                idx++;
+            }
 
             void AddWav(string path)
             {
@@ -204,20 +222,19 @@ namespace SnipSnip
                 var info = await FFmpeg.ProbeAsync(p.Meta.SourceFile);
                 if (info.HasAudio)
                 {
-                    args.AddRange(new[] { "-i", p.Meta.SourceFile });
-                    f.Append($"[{idx}:a]aresample=48000,volume={N(st.SystemVolume)}[a{idx}];");
-                    srcLabels.Add($"[a{idx}]");
-                    idx++;
+                    if (ed.Gain(AudioTrackId.System) > 0.001)
+                    {
+                        args.AddRange(new[] { "-i", p.Meta.SourceFile });
+                        AddSource(AudioTrackId.System, "");
+                    }
                 }
             }
-            if (p.SystemAudio != null && File.Exists(p.SystemAudio) && st.SystemVolume > 0.001)
+            if (p.SystemAudio != null && File.Exists(p.SystemAudio) && ed.Gain(AudioTrackId.System) > 0.001)
             {
                 AddWav(p.SystemAudio);
-                f.Append($"[{idx}:a]aresample=48000,volume={N(st.SystemVolume)}[a{idx}];");
-                srcLabels.Add($"[a{idx}]");
-                idx++;
+                AddSource(AudioTrackId.System, "");
             }
-            if (p.MicAudio != null && File.Exists(p.MicAudio) && st.MicVolume > 0.001)
+            if (p.MicAudio != null && File.Exists(p.MicAudio) && ed.Gain(AudioTrackId.Mic) > 0.001)
             {
                 AddWav(p.MicAudio);
                 string noise = st.Noise switch
@@ -226,13 +243,11 @@ namespace SnipSnip
                     NoiseMode.Podcast => "highpass=f=90,afftdn=nr=18:nf=-28,acompressor=threshold=-20dB:ratio=3:attack=10:release=200,equalizer=f=3000:t=q:w=1:g=2,",
                     _ => ""
                 };
-                f.Append($"[{idx}:a]aresample=48000,{noise}volume={N(st.MicVolume)}[a{idx}];");
-                srcLabels.Add($"[a{idx}]");
-                idx++;
+                AddSource(AudioTrackId.Mic, noise);
             }
 
             string? clicks = st.ClickSound && p.Input.HasCursor ? WriteClickTrack(p, tmp, dur) : null;
-            bool music = st.MusicPath != null && File.Exists(st.MusicPath) && st.MusicVolume > 0.001;
+            bool music = st.MusicPath != null && File.Exists(st.MusicPath) && ed.Gain(AudioTrackId.Music) > 0.001;
             if (srcLabels.Count == 0 && clicks == null && !music) return null;
 
             string edited;
@@ -243,18 +258,8 @@ namespace SnipSnip
             }
             else
             {
-                if (srcLabels.Count > 1) f.Append(string.Concat(srcLabels) + $"amix=inputs={srcLabels.Count}:duration=longest:normalize=0[src];");
-                else f.Append($"{srcLabels[0]}anull[src];");
-
-                var kept = p.Kept.ToList();
-                f.Append($"[src]asplit={kept.Count}" + string.Concat(kept.Select((_, i) => $"[s{i}]")) + ";");
-                for (int i = 0; i < kept.Count; i++)
-                {
-                    var c = kept[i];
-                    string tempo = Math.Abs(c.Speed - 1) > 0.01 ? $",atempo={N(Math.Clamp(c.Speed, 0.5, 100))}" : "";
-                    f.Append($"[s{i}]atrim=start={N(c.Start)}:end={N(c.End)},asetpts=PTS-STARTPTS{tempo}[e{i}];");
-                }
-                f.Append(string.Concat(kept.Select((_, i) => $"[e{i}]")) + $"concat=n={kept.Count}:v=0:a=1[ed];");
+                if (srcLabels.Count > 1) f.Append(string.Concat(srcLabels) + $"amix=inputs={srcLabels.Count}:duration=longest:normalize=0[ed];");
+                else f.Append($"{srcLabels[0]}anull[ed];");
                 edited = "[ed]";
             }
 
@@ -276,8 +281,7 @@ namespace SnipSnip
             if (music)
             {
                 args.AddRange(new[] { "-stream_loop", "-1", "-i", st.MusicPath! });
-                double fade = Math.Min(2, dur / 3);
-                f.Append($"[{idx}:a]aresample=48000,atrim=duration={N(dur)},volume={N(st.MusicVolume)},afade=t=out:st={N(Math.Max(0, dur - fade))}:d={N(fade)}" + (duck ? "[mraw];[mraw][eds]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=600:makeup=1[mus];" : "[mus];"));
+                f.Append($"[{idx}:a]aresample=48000,atrim=duration={N(dur)},volume={N(ed.Gain(AudioTrackId.Music))}{TrackFades(ed.Peek(AudioTrackId.Music), dur)}" + (duck ? "[mraw];[mraw][eds]sidechaincompress=threshold=0.02:ratio=8:attack=40:release=600:makeup=1[mus];" : "[mus];"));
                 mixLabels.Add("[mus]");
                 idx++;
             }
@@ -294,6 +298,13 @@ namespace SnipSnip
             args.AddRange(new[] { "-filter_complex", f.ToString(), "-map", "[out]", "-ar", "48000", "-ac", "2", outPath });
             await FFmpeg.RunAsync(args, null, ct);
             return outPath;
+        }
+
+        /// <summary>Ein-/Ausblenden einer Tonspur (Ausgabezeit) als Filter-Anhang.</summary>
+        static string TrackFades(AudioTrackEdit t, double dur)
+        {
+            double fi = Math.Min(t.FadeIn, dur / 2), fo = Math.Min(t.FadeOut, dur / 2);
+            return (fi > 0.01 ? $",afade=t=in:d={N(fi)}" : "") + (fo > 0.01 ? $",afade=t=out:st={N(Math.Max(0, dur - fo))}:d={N(fo)}" : "");
         }
 
         /// <summary>Spur mit Mausklick-Geräuschen (Drücken und Loslassen) an den Zeitpunkten des fertigen Videos.</summary>
